@@ -4,56 +4,80 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class SkalyanaReferenceSeeder extends Seeder
 {
     public function run(): void
     {
-        $path = database_path('sql/skalyana_reference.sql');
-
-        if (!file_exists($path)) {
-            $this->command?->warn('skalyana_reference.sql not found. Run scratch/extract_skalyana.php first.');
-            return;
-        }
-
-        $sql = file_get_contents($path);
-
-        if (Schema::hasTable('castes')) {
-            DB::table('cities')->delete();
-            DB::table('states')->delete();
-            DB::table('castes')->delete();
-            DB::table('religions')->delete();
-        }
-
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        DB::table('cities')->delete();
+        DB::table('states')->delete();
+        DB::table('castes')->delete();
+        DB::table('religions')->delete();
 
-        preg_match_all('/INSERT INTO[^;]+;/s', $sql, $matches);
-        foreach ($matches[0] as $statement) {
-            if (!str_starts_with(trim($statement), 'INSERT INTO')) {
-                continue;
-            }
+        // Religions
+        $religions = [
+            [1, 'Hindu'],
+            [2, 'Muslim'],
+            [3, 'Christian'],
+            [4, 'Sikh'],
+            [5, 'Buddhist'],
+            [6, 'Jain'],
+            [7, 'Other'],
+        ];
+        foreach ($religions as $r) {
+            DB::table('religions')->insert(['id' => $r[0], 'name' => $r[1], 'created_at' => now(), 'updated_at' => now()]);
+        }
 
-            if (str_contains($statement, '`cities`') && str_contains($statement, 'deleted_at')) {
-                $statement = str_replace(', `deleted_at`', '', $statement);
-                $statement = preg_replace(
-                    "/'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', NULL\)/",
-                    "'$1')",
-                    $statement
-                );
-            }
+        // Castes (Hindu)
+        $castes = [
+            [1, 1, 'Iyer'],
+            [2, 1, 'Iyengar'],
+            [3, 1, 'Reddy'],
+            [4, 1, 'Naidu'],
+            [5, 1, 'Chettiar'],
+            [6, 1, 'Gounder'],
+            [7, 1, 'Mudaliar'],
+            [8, 1, 'Pillai'],
+            [9, 1, 'Thevar'],
+            [10, 1, 'Vanniyar'],
+            [11, 1, 'Nadar'],
+            [12, 1, 'Yadava'],
+            [13, 1, 'SC'],
+            [14, 1, 'ST'],
+            [15, 1, 'BC'],
+            [16, 1, 'MBC'],
+            [17, 1, 'OC'],
+            [18, 1, 'Other'],
+        ];
+        foreach ($castes as $c) {
+            DB::table('castes')->insert(['id' => $c[0], 'religion_id' => $c[1], 'name' => $c[2], 'created_at' => now(), 'updated_at' => now()]);
+        }
 
-            // Skip malformed rows with id 0 (duplicate primary keys in source dump)
-            if (str_contains($statement, 'INSERT INTO `cities`')) {
-                $statement = preg_replace('/\(\s*0\s*,/', '(SKIP_ROW,', $statement);
-                $statement = preg_replace('/\(\s*SKIP_ROW[^)]+\),?\s*/', '', $statement);
-            }
+        // States (only Tamil Nadu)
+        DB::table('states')->insert(['id' => 1, 'name' => 'Tamil Nadu', 'created_at' => now(), 'updated_at' => now()]);
 
-            DB::unprepared($statement);
+        // Cities (Tamil Nadu major cities)
+        $cities = [
+            'Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem',
+            'Tirunelveli', 'Tiruppur', 'Erode', 'Vellore', 'Thoothukudi',
+            'Dindigul', 'Thanjavur', 'Ranipet', 'Sivakasi', 'Karur',
+            'Udhagamandalam', 'Hosur', 'Nagercoil', 'Kanchipuram', 'Kumbakonam',
+            'Cuddalore', 'Rajapalayam', 'Pollachi', 'Bodinayakkanur', 'Arakkonam',
+            'Tiruvannamalai', 'Karaikudi', 'Nagapattinam', 'Mettupalayam', 'Pudukkottai',
+        ];
+        foreach ($cities as $i => $name) {
+            DB::table('cities')->insert([
+                'id' => $i + 1,
+                'state_id' => 1,
+                'name' => $name,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
         }
 
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
-        $this->command?->info('Imported religions, castes, states, and cities from skalyana reference.');
+        $this->command?->info('Seeded religions, castes, state (Tamil Nadu), and 30 Tamil Nadu cities.');
     }
 }

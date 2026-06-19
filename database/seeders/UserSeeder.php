@@ -5,24 +5,15 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Models\User;
 use App\Models\MemberProfile;
-use App\Models\ProfileGallery;
-use App\Models\FamilyDetail;
-use App\Models\PartnerPreference;
 use Illuminate\Support\Facades\Hash;
-use Carbon\Carbon;
 
 class UserSeeder extends Seeder
 {
-    private function pick(array $arr, int $i)
-    {
-        return $arr[$i % count($arr)];
-    }
-
     public function run(): void
     {
-        // 1. Create Admin
+        // 1 Admin
         if (!User::where('email', 'admin@matrimony.in')->exists()) {
-            User::create([
+            $admin = User::create([
                 'name' => 'Admin User',
                 'email' => 'admin@matrimony.in',
                 'role' => 'admin',
@@ -32,115 +23,100 @@ class UserSeeder extends Seeder
                 'tob' => '09:00',
                 'password' => Hash::make('password'),
             ]);
+            $this->createMemberProfile($admin, 'UK00001');
         }
 
-        // 2. Create Staff users
-        $staffNames = ["Ravi Kumar", "Meera Sharma", "Anil Patel", "Sunita Rao", "Vikram Singh", "Pooja Joshi"];
-        foreach ($staffNames as $i => $name) {
-            $staffEmail = "staff{$i}@matrimony.in";
-            if (!User::where('email', $staffEmail)->exists()) {
-                User::create([
-                    'name' => $name,
-                    'email' => $staffEmail,
+        // 3 Staff
+        $staffData = [
+            ['name' => 'Ravi Kumar', 'email' => 'staff0@matrimony.in', 'phone' => '+91 8888888800', 'gender' => 'male'],
+            ['name' => 'Meera Sharma', 'email' => 'staff1@matrimony.in', 'phone' => '+91 8888888801', 'gender' => 'female'],
+            ['name' => 'Anil Patel', 'email' => 'staff2@matrimony.in', 'phone' => '+91 8888888802', 'gender' => 'male'],
+        ];
+        foreach ($staffData as $i => $s) {
+            if (!User::where('email', $s['email'])->exists()) {
+                $user = User::create([
+                    'name' => $s['name'],
+                    'email' => $s['email'],
                     'role' => 'staff',
-                    'phone' => '+91 888888880' . $i,
-                    'gender' => $i % 2 === 0 ? 'male' : 'female',
+                    'phone' => $s['phone'],
+                    'gender' => $s['gender'],
                     'dob' => '1992-05-15',
                     'tob' => '10:30',
                     'password' => Hash::make('password'),
                 ]);
+                $this->createMemberProfile($user, 'UK00' . (10001 + $user->id));
             }
         }
 
-        // 3. Create 100 Members from the migrated profiles JSON file
-        $jsonPath = database_path('seeders/profiles.json');
-        if (file_exists($jsonPath)) {
-            $profiles = json_decode(file_get_contents($jsonPath), true);
-            foreach ($profiles as $i => $data) {
-                // Check if user already exists
-                if (User::where('email', $data['email'])->exists()) {
-                    continue;
-                }
-                // Create user
-                $user = User::create([
-                    'name' => $data['name'],
-                    'email' => $data['email'],
-                    'role' => 'member',
-                    'phone' => $data['phone'],
-                    'gender' => $data['gender'],
-                    'dob' => $data['dob'],
-                    'tob' => $data['tob'],
-                    'password' => $data['password_hash'] ?: Hash::make('password'),
-                    'contact_quota' => 5,   // default free quotas
-                    'message_quota' => 15,
-                ]);
+        // 8 Member users
+        $members = [
+            ['name' => 'Priya Venkatesh', 'gender' => 'female', 'age' => 26, 'religion' => 'Hindu', 'community' => 'Iyer', 'city' => 'Chennai', 'profession' => 'Software Engineer', 'education' => 'B.E'],
+            ['name' => 'Arun Kumar', 'gender' => 'male', 'age' => 29, 'religion' => 'Hindu', 'community' => 'Mudaliar', 'city' => 'Coimbatore', 'profession' => 'Doctor', 'education' => 'MBBS'],
+            ['name' => 'Divya Rajan', 'gender' => 'female', 'age' => 24, 'religion' => 'Hindu', 'community' => 'Pillai', 'city' => 'Madurai', 'profession' => 'Teacher', 'education' => 'B.Ed'],
+            ['name' => 'Suresh Babu', 'gender' => 'male', 'age' => 31, 'religion' => 'Hindu', 'community' => 'Gounder', 'city' => 'Salem', 'profession' => 'Business', 'education' => 'MBA'],
+            ['name' => 'Lakshmi Narayanan', 'gender' => 'female', 'age' => 27, 'religion' => 'Hindu', 'community' => 'Chettiar', 'city' => 'Tiruchirappalli', 'profession' => 'Chartered Accountant', 'education' => 'CA'],
+            ['name' => 'Karthick Raja', 'gender' => 'male', 'age' => 28, 'religion' => 'Hindu', 'community' => 'Nadar', 'city' => 'Tirunelveli', 'profession' => 'Civil Engineer', 'education' => 'B.Tech'],
+            ['name' => 'Anitha Devi', 'gender' => 'female', 'age' => 25, 'religion' => 'Hindu', 'community' => 'Thevar', 'city' => 'Vellore', 'profession' => 'Nurse', 'education' => 'B.Sc Nursing'],
+            ['name' => 'Manoj Kumar', 'gender' => 'male', 'age' => 30, 'religion' => 'Hindu', 'community' => 'Reddy', 'city' => 'Hosur', 'profession' => 'IT Manager', 'education' => 'M.Sc'],
+        ];
 
-                // Create Member Profile
-                $profile = MemberProfile::create([
-                    'user_id' => $user->id,
-                    'display_id' => 'UK00' . (10000 + $user->id),
-                    'age' => $data['profile_data']['age'],
-                    'height' => $data['profile_data']['height'],
-                    'religion' => $data['profile_data']['religion'],
-                    'community' => $data['profile_data']['community'],
-                    'mother_tongue' => $data['profile_data']['mother_tongue'],
-                    'city' => $data['profile_data']['city'],
-                    'state' => $data['profile_data']['state'],
-                    'country' => $data['profile_data']['country'],
-                    'profession' => $data['profile_data']['profession'],
-                    'education' => $data['profile_data']['education'],
-                    'income' => $data['profile_data']['income'],
-                    'marital_status' => $data['profile_data']['marital_status'],
-                    'photo' => asset('storage/photos/' . $data['profile_data']['photo']),
-                    'bio' => $data['profile_data']['bio'],
-                    'premium' => $i % 3 === 0, // Make 1 in every 3 members premium
-                    'verified' => true,
-                    'online' => $i % 4 === 0,
-                    'last_active_at' => $i % 4 === 0 ? Carbon::now() : Carbon::now()->subHours(($i % 8) + 1),
-                    'rasi' => $data['profile_data']['rasi'],
-                    'nakshatram' => $data['profile_data']['nakshatram'],
-                ]);
+        foreach ($members as $i => $m) {
+            $email = 'user' . ($i + 1) . '@test.in';
+            if (User::where('email', $email)->exists()) continue;
 
-                // Create Gallery Photos
-                $galleryFiles = array_values(array_unique(array_merge(
-                    [$data['profile_data']['photo']],
-                    $data['gallery'] ?? []
-                )));
+            $user = User::create([
+                'name' => $m['name'],
+                'email' => $email,
+                'role' => 'member',
+                'phone' => '+91 98765432' . str_pad((string)($i + 10), 2, '0', STR_PAD_LEFT),
+                'gender' => $m['gender'],
+                'dob' => now()->subYears($m['age'])->subDays(rand(1, 365))->format('Y-m-d'),
+                'tob' => sprintf('%02d:%02d', rand(6, 22), rand(0, 3) * 15),
+                'password' => Hash::make('password'),
+                'contact_quota' => 5,
+                'message_quota' => 15,
+            ]);
 
-                foreach ($galleryFiles as $sortOrder => $file) {
-                    $folder = ($sortOrder === 0 || $file === $data['profile_data']['photo']) ? 'photos' : 'gallery';
-                    ProfileGallery::create([
-                        'member_profile_id' => $profile->id,
-                        'image_url' => asset('storage/' . $folder . '/' . $file),
-                        'sort_order' => $sortOrder,
-                    ]);
-                }
+            $profile = $this->createMemberProfile($user, 'UK00' . (10001 + $user->id));
 
-                // Create Family Details
-                FamilyDetail::create([
-                    'member_profile_id' => $profile->id,
-                    'father' => $data['family_detail']['father'],
-                    'mother' => $data['family_detail']['mother'],
-                    'siblings' => $data['family_detail']['siblings'],
-                    'family_type' => $data['family_detail']['family_type'],
-                    'family_values' => $data['family_detail']['family_values'],
-                    'family_status' => $data['family_detail']['family_status'],
-                ]);
-
-                // Create Partner Preferences
-                PartnerPreference::create([
-                    'member_profile_id' => $profile->id,
-                    'age_range' => $data['partner_preference']['age_range'],
-                    'height_range' => $data['partner_preference']['height_range'],
-                    'religion' => $data['partner_preference']['religion'],
-                    'community' => $data['partner_preference']['community'],
-                    'education' => $data['partner_preference']['education'],
-                    'profession' => $data['partner_preference']['profession'],
-                    'location' => $data['partner_preference']['location'],
-                ]);
-            }
-        } else {
-            $this->command->error("Profiles JSON file not found at: {$jsonPath}");
+            MemberProfile::where('id', $profile->id)->update([
+                'age' => $m['age'],
+                'religion' => $m['religion'],
+                'community' => $m['community'],
+                'city' => $m['city'],
+                'profession' => $m['profession'],
+                'education' => $m['education'],
+                'premium' => $i < 3,
+                'verified' => true,
+            ]);
         }
+
+        $this->command?->info('Seeded 1 admin, 3 staff, and 8 member users.');
+    }
+
+    private function createMemberProfile($user, string $displayId)
+    {
+        return MemberProfile::create([
+            'user_id' => $user->id,
+            'display_id' => $displayId,
+            'age' => 25,
+            'height' => rand(150, 185),
+            'religion' => 'Hindu',
+            'community' => 'Other',
+            'mother_tongue' => 'Tamil',
+            'city' => 'Chennai',
+            'state' => 'Tamil Nadu',
+            'country' => 'India',
+            'profession' => 'Professional',
+            'education' => 'Graduate',
+            'income' => 'Rs 5-10 Lakhs',
+            'marital_status' => 'Never Married',
+            'bio' => 'Looking for a caring and understanding partner.',
+            'premium' => false,
+            'verified' => true,
+            'online' => false,
+            'rasi' => 'Mesha',
+            'nakshatram' => 'Ashwini',
+        ]);
     }
 }
