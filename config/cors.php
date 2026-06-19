@@ -5,7 +5,10 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:5173')],
+    'allowed_origins' => [
+        env('FRONTEND_URL', 'https://matrimony.90skalyanam.com'),
+        'https://matrimony.90skalyanam.com',
+    ],
 
     'allowed_origins_patterns' => [],
 
