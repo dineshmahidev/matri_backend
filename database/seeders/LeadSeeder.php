@@ -26,11 +26,14 @@ class LeadSeeder extends Seeder
         $staff = User::where('role', 'staff')->get();
 
         for ($i = 0; $i < 12; $i++) {
+            $displayId = 'L' . (2000 + $i);
+            if (Lead::where('display_id', $displayId)->exists()) continue;
+
             $name = $this->pick($allNames, $i);
             $staffUser = $staff->count() > 0 ? $this->pick($staff->all(), $i) : null;
 
             Lead::create([
-                'display_id' => 'L' . (2000 + $i),
+                'display_id' => $displayId,
                 'name' => $name,
                 'phone' => '+91 9' . substr(str_pad((string)(800000000 + $i * 13771), 9, '0', STR_PAD_LEFT), 0, 9),
                 'email' => "lead{$i}@example.com",

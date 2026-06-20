@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class MemberProfile extends Model
 {
     protected $fillable = [
-        'user_id', 'display_id', 'age', 'height', 'blood_group', 'religion', 'community',
+        'user_id', 'display_id', 'age', 'height', 'blood_group', 'skin_colour', 'religion', 'community',
         'mother_tongue', 'city', 'state', 'country', 'profession', 'education',
         'income', 'marital_status', 'photo', 'bio', 'premium', 'verified',
         'online', 'last_active_at', 'rasi', 'nakshatram', 'featured',

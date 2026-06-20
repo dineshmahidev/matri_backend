@@ -62,9 +62,11 @@ class ChatSeeder extends Seeder
             $partner = User::whereHas('profile', fn($p) => $p->where('display_id', $displayId))->first();
             if (!$partner) continue;
 
-            // Ensure consistent order for user_a_id < user_b_id
             $userA = $me->id < $partner->id ? $me : $partner;
             $userB = $me->id < $partner->id ? $partner : $me;
+
+            // Skip if conversation already exists
+            if (Conversation::where('user_a_id', $userA->id)->where('user_b_id', $userB->id)->exists()) continue;
 
             $unreadA = $userA->id === $me->id ? 0 : $data['unread'];
             $unreadB = $userB->id === $me->id ? 0 : $data['unread'];

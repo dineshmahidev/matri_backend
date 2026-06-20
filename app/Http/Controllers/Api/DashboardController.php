@@ -71,6 +71,8 @@ class DashboardController extends Controller
             'user' => [
                 'name' => $user->name,
                 'photo' => $user->profile?->photo,
+                'gallery' => $user->profile?->gallery?->pluck('image_url') ?? [],
+                'is_premium' => $user->activeSubscription?->plan?->slug !== null,
                 'profile_completion' => $this->profileCompletion->completionPercent($user),
                 'profile_complete' => $this->profileCompletion->isEssentiallyComplete($user),
                 'missing_fields' => $this->profileCompletion->missingFields($user),

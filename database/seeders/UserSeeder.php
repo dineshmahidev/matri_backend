@@ -60,9 +60,24 @@ class UserSeeder extends Seeder
             ['name' => 'Manoj Kumar', 'gender' => 'male', 'age' => 30, 'religion' => 'Hindu', 'community' => 'Reddy', 'city' => 'Hosur', 'profession' => 'IT Manager', 'education' => 'M.Sc'],
         ];
 
+        $placeholders = [
+            'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
+            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
+            'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
+            'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
+            'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
+            'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
+            'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400',
+        ];
+
         foreach ($members as $i => $m) {
             $email = 'user' . ($i + 1) . '@test.in';
-            if (User::where('email', $email)->exists()) continue;
+            $existing = User::where('email', $email)->first();
+            if ($existing) {
+                MemberProfile::where('user_id', $existing->id)->update(['photo' => $placeholders[$i]]);
+                continue;
+            }
 
             $user = User::create([
                 'name' => $m['name'],
@@ -88,6 +103,7 @@ class UserSeeder extends Seeder
                 'education' => $m['education'],
                 'premium' => $i < 3,
                 'verified' => true,
+                'photo' => $placeholders[$i],
             ]);
         }
 

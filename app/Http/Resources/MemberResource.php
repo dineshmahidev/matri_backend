@@ -55,6 +55,7 @@ class MemberResource extends JsonResource
             'age' => $profile?->age,
             'height' => $profile?->height,
             'blood_group' => $profile?->blood_group,
+            'skinColour' => $profile?->skin_colour,
             'religion' => $profile?->religion,
             'community' => $profile?->community,
             'motherTongue' => $profile?->mother_tongue,

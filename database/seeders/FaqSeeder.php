@@ -43,6 +43,7 @@ class FaqSeeder extends Seeder
         ];
 
         foreach ($faqs as $faq) {
+            if (Faq::where('question', $faq['question'])->exists()) continue;
             Faq::create($faq);
         }
     }

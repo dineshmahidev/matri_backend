@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\ProfileCompletionService;
+use App\Mail\ForgotPasswordMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -164,10 +166,14 @@ class AuthController extends Controller
         $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $user->update(['otp' => $otp, 'otp_expires_at' => now()->addMinutes(10)]);
 
+        // Send OTP via email
+        if ($request->email) {
+            Mail::to($user->email)->send(new ForgotPasswordMail($user, $otp));
+        }
+
         return response()->json([
             'message' => 'OTP sent successfully.',
             'user_id' => $user->id,
-            'otp' => $otp, // In production, send via SMS/email instead
         ]);
     }
 

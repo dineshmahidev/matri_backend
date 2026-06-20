@@ -34,6 +34,7 @@ class SuccessStorySeeder extends Seeder
         ];
 
         foreach ($stories as $story) {
+            if (SuccessStory::where('couple_name', $story['couple_name'])->exists()) continue;
             SuccessStory::create($story);
         }
     }

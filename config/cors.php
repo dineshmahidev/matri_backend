@@ -8,6 +8,9 @@ return [
     'allowed_origins' => [
         env('FRONTEND_URL', 'https://matrimony.90skalyanam.com'),
         'https://matrimony.90skalyanam.com',
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'http://172.31.106.140:5173',
     ],
 
     'allowed_origins_patterns' => [],

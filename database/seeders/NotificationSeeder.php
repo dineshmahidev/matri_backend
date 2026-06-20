@@ -46,6 +46,7 @@ class NotificationSeeder extends Seeder
 
         foreach ($notifications as $notification) {
             $notification['user_id'] = $me->id;
+            if (Notification::where('user_id', $me->id)->where('title', $notification['title'])->exists()) continue;
             Notification::create($notification);
         }
     }

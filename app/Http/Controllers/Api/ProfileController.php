@@ -26,6 +26,7 @@ class ProfileController extends Controller
             'bio' => 'sometimes|string|max:1000',
             'height' => 'sometimes|string',
             'blood_group' => 'sometimes|string|nullable',
+            'skin_colour' => 'sometimes|string|nullable',
             'religion' => 'sometimes|string',
             'community' => 'sometimes|string',
             'mother_tongue' => 'sometimes|string',
