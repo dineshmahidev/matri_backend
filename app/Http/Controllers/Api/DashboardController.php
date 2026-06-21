@@ -22,46 +22,74 @@ class DashboardController extends Controller
 
         $oppositeGender = $user->gender === 'male' ? 'female' : ($user->gender === 'female' ? 'male' : null);
 
-        $query = \App\Models\User::where('role', 'member')
+        $baseQuery = \App\Models\User::where('role', 'member')
             ->where('id', '!=', $user->id)
             ->whereHas('profile')
             ->with('profile.gallery', 'activeSubscription.plan');
 
         if ($oppositeGender) {
-            $query->where('gender', $oppositeGender);
+            $baseQuery->where('gender', $oppositeGender);
         }
+
+        // Exclude already-interacted profiles
+        $baseQuery->whereNotIn('id', fn($q) => $q->select('receiver_id')->from('interests')->where('sender_id', $user->id))
+                  ->whereNotIn('id', fn($q) => $q->select('saved_user_id')->from('saved_profiles')->where('user_id', $user->id))
+                  ->whereNotIn('id', fn($q) => $q->select('unlocked_user_id')->from('unlocked_profiles')->where('user_id', $user->id));
 
         $profile = $user->profile;
+        $collectedIds = collect();
+        $matches = collect();
+
         if ($profile) {
             $preference = $profile->partnerPreference;
+
+            $prefReligion = null;
+            $prefCommunity = null;
+
             if ($preference) {
                 if ($preference->religion && strtolower($preference->religion) !== 'open to all') {
-                    $query->whereHas('profile', fn($q) => $q->where('religion', $preference->religion));
+                    $prefReligion = $preference->religion;
                 }
                 if ($preference->community && strtolower($preference->community) !== 'open to all') {
-                    $query->whereHas('profile', fn($q) => $q->where('community', $preference->community));
+                    $prefCommunity = $preference->community;
                 }
             } else {
-                if ($profile->religion) {
-                    $query->whereHas('profile', fn($q) => $q->where('religion', $profile->religion));
-                }
+                if ($profile->religion) $prefReligion = $profile->religion;
+                if ($profile->community) $prefCommunity = $profile->community;
+            }
+
+            // Level 1: Mutual + own preferences
+            $q1 = clone $baseQuery;
+            $this->applyOwnPreferences($q1, $prefReligion, $prefCommunity);
+            $this->applyMutualMatching($q1, $profile);
+            $results = $q1->inRandomOrder()->take(4)->get();
+            $collectedIds = $results->pluck('id');
+            $matches = $results;
+
+            // Level 2: Drop mutual, keep own prefs
+            if ($matches->count() < 4) {
+                $q2 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+                $this->applyOwnPreferences($q2, $prefReligion, $prefCommunity);
+                $results = $q2->inRandomOrder()->take(4 - $matches->count())->get();
+                $collectedIds = $collectedIds->merge($results->pluck('id'));
+                $matches = $matches->merge($results);
+            }
+
+            // Level 3: Drop community, keep religion only
+            if ($matches->count() < 4 && $prefReligion) {
+                $q3 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+                $q3->whereHas('profile', fn($q) => $q->where('religion', $prefReligion));
+                $results = $q3->inRandomOrder()->take(4 - $matches->count())->get();
+                $collectedIds = $collectedIds->merge($results->pluck('id'));
+                $matches = $matches->merge($results);
             }
         }
 
-        $matches = $query->inRandomOrder()->take(4)->get();
-
-        // If not enough compatible matches, merge fallback matches of the opposite gender
+        // Level 4: No preference filters
         if ($matches->count() < 4) {
-            $fallbackQuery = \App\Models\User::where('role', 'member')
-                ->where('id', '!=', $user->id)
-                ->whereHas('profile')
-                ->with('profile.gallery', 'activeSubscription.plan');
-            if ($oppositeGender) {
-                $fallbackQuery->where('gender', $oppositeGender);
-            }
-            $fallbackIds = $matches->pluck('id');
-            $fallbackMatches = $fallbackQuery->whereNotIn('id', $fallbackIds)->inRandomOrder()->take(4 - $matches->count())->get();
-            $matches = $matches->merge($fallbackMatches);
+            $q4 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+            $results = $q4->inRandomOrder()->take(4 - $matches->count())->get();
+            $matches = $matches->merge($results);
         }
 
         $notifications = $user->notifications()->latest()->take(5)->get();
@@ -93,5 +121,36 @@ class DashboardController extends Controller
             'notifications' => $notifications,
             'payments' => $payments,
         ]);
+    }
+
+    private function applyOwnPreferences($query, $religion, $community): void
+    {
+        if ($religion) {
+            $query->whereHas('profile', fn($q) => $q->where('religion', $religion));
+        }
+        if ($community) {
+            $query->whereHas('profile', fn($q) => $q->where('community', $community));
+        }
+    }
+
+    private function applyMutualMatching($query, $profile): void
+    {
+        $query->where(function ($q) use ($profile) {
+            $q->whereDoesntHave('profile.partnerPreference')
+              ->orWhereHas('profile.partnerPreference', function ($pq) use ($profile) {
+                  $pq->where(function ($rq) use ($profile) {
+                      $rq->whereNull('religion')
+                         ->orWhere('religion', '')
+                         ->orWhere('religion', 'Open to all')
+                         ->orWhere('religion', $profile->religion);
+                  });
+                  $pq->where(function ($cq) use ($profile) {
+                      $cq->whereNull('community')
+                         ->orWhere('community', '')
+                         ->orWhere('community', 'Open to all')
+                         ->orWhere('community', $profile->community);
+                  });
+              });
+        });
     }
 }

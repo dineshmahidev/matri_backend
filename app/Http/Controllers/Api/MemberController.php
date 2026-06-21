@@ -79,43 +79,108 @@ class MemberController extends Controller
         }
 
         $oppositeGender = $user->gender === 'male' ? 'female' : ($user->gender === 'female' ? 'male' : null);
+        $perPage = (int) ($request->per_page ?? 24);
+        $minResults = min(10, $perPage);
 
-        $query = User::where('role', 'member')
+        // Base query: always applied
+        $baseQuery = User::where('role', 'member')
             ->where('id', '!=', $user->id)
             ->whereHas('profile')
             ->with('profile.gallery', 'profile.familyDetail', 'profile.partnerPreference', 'activeSubscription.plan');
 
         if ($oppositeGender) {
-            $query->where('gender', $oppositeGender);
+            $baseQuery->where('gender', $oppositeGender);
         }
 
+        // Always exclude already-interacted profiles
+        $baseQuery->whereNotIn('id', fn($q) => $q->select('receiver_id')->from('interests')->where('sender_id', $user->id))
+                  ->whereNotIn('id', fn($q) => $q->select('saved_user_id')->from('saved_profiles')->where('user_id', $user->id))
+                  ->whereNotIn('id', fn($q) => $q->select('unlocked_user_id')->from('unlocked_profiles')->where('user_id', $user->id));
+
         $profile = $user->profile;
+        $collectedIds = collect();
+        $allResults = collect();
+
         if ($profile) {
             $preference = $profile->partnerPreference;
+
+            // Determine own preference values
+            $prefReligion = null;
+            $prefCommunity = null;
+            $ageMin = null;
+            $ageMax = null;
+
             if ($preference) {
                 if ($preference->religion && strtolower($preference->religion) !== 'open to all') {
-                    $query->whereHas('profile', fn($q) => $q->where('religion', $preference->religion));
+                    $prefReligion = $preference->religion;
                 }
                 if ($preference->community && strtolower($preference->community) !== 'open to all') {
-                    $query->whereHas('profile', fn($q) => $q->where('community', $preference->community));
+                    $prefCommunity = $preference->community;
                 }
                 if ($preference->age_range) {
                     $parts = explode('-', $preference->age_range);
                     if (count($parts) === 2) {
-                        $query->whereHas('profile', fn($q) => $q->whereBetween('age', [(int)trim($parts[0]), (int)trim($parts[1])]));
+                        $ageMin = (int) trim($parts[0]);
+                        $ageMax = (int) trim($parts[1]);
                     }
                 }
             } else {
-                if ($profile->religion) {
-                    $query->whereHas('profile', fn($q) => $q->where('religion', $profile->religion));
-                }
-                if ($profile->community) {
-                    $query->whereHas('profile', fn($q) => $q->where('community', $profile->community));
-                }
+                if ($profile->religion) $prefReligion = $profile->religion;
+                if ($profile->community) $prefCommunity = $profile->community;
+            }
+
+            // Level 1: Mutual matching + own preferences (strictest)
+            $q1 = clone $baseQuery;
+            $this->applyOwnPreferences($q1, $prefReligion, $prefCommunity, $ageMin, $ageMax);
+            $this->applyMutualMatching($q1, $profile);
+            $results = $q1->inRandomOrder()->take($perPage)->get();
+            $collectedIds = $results->pluck('id');
+            $allResults = $results;
+
+            // Level 2: Drop mutual, keep own preferences
+            if ($allResults->count() < $minResults) {
+                $q2 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+                $this->applyOwnPreferences($q2, $prefReligion, $prefCommunity, $ageMin, $ageMax);
+                $results = $q2->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $collectedIds = $collectedIds->merge($results->pluck('id'));
+                $allResults = $allResults->merge($results);
+            }
+
+            // Level 3: Drop community, keep religion + age
+            if ($allResults->count() < $minResults && $prefReligion) {
+                $q3 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+                $this->applyReligionAge($q3, $prefReligion, $ageMin, $ageMax);
+                $results = $q3->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $collectedIds = $collectedIds->merge($results->pluck('id'));
+                $allResults = $allResults->merge($results);
+            }
+
+            // Level 4: Drop religion, keep age only
+            if ($allResults->count() < $minResults && $ageMin !== null) {
+                $q4 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+                $q4->whereHas('profile', fn($q) => $q->whereBetween('age', [$ageMin, $ageMax]));
+                $results = $q4->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $collectedIds = $collectedIds->merge($results->pluck('id'));
+                $allResults = $allResults->merge($results);
             }
         }
 
-        $members = $query->inRandomOrder()->paginate($request->per_page ?? 24);
+        // Level 5: No preference filters (just opposite gender + exclude interacted)
+        if ($allResults->count() < $minResults) {
+            $q5 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
+            $results = $q5->inRandomOrder()->take($perPage - $allResults->count())->get();
+            $allResults = $allResults->merge($results);
+        }
+
+        // Manual pagination
+        $total = $allResults->count();
+        $page = (int) ($request->page ?? 1);
+        $offset = ($page - 1) * $perPage;
+        $slice = $allResults->slice($offset, $perPage)->values();
+        $members = new \Illuminate\Pagination\LengthAwarePaginator(
+            $slice, $total, $perPage, $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
 
         $memberIds = $members->pluck('id');
         $user->load(['savedProfiles' => fn($q) => $q->whereIn('saved_user_id', $memberIds),
@@ -130,6 +195,48 @@ class MemberController extends Controller
         });
 
         return MemberResource::collection($members);
+    }
+
+    private function applyOwnPreferences($query, $religion, $community, $ageMin, $ageMax): void
+    {
+        if ($religion) {
+            $query->whereHas('profile', fn($q) => $q->where('religion', $religion));
+        }
+        if ($community) {
+            $query->whereHas('profile', fn($q) => $q->where('community', $community));
+        }
+        if ($ageMin !== null) {
+            $query->whereHas('profile', fn($q) => $q->whereBetween('age', [$ageMin, $ageMax]));
+        }
+    }
+
+    private function applyReligionAge($query, $religion, $ageMin, $ageMax): void
+    {
+        $query->whereHas('profile', fn($q) => $q->where('religion', $religion));
+        if ($ageMin !== null) {
+            $query->whereHas('profile', fn($q) => $q->whereBetween('age', [$ageMin, $ageMax]));
+        }
+    }
+
+    private function applyMutualMatching($query, $profile): void
+    {
+        $query->where(function ($q) use ($profile) {
+            $q->whereDoesntHave('profile.partnerPreference')
+              ->orWhereHas('profile.partnerPreference', function ($pq) use ($profile) {
+                  $pq->where(function ($rq) use ($profile) {
+                      $rq->whereNull('religion')
+                         ->orWhere('religion', '')
+                         ->orWhere('religion', 'Open to all')
+                         ->orWhere('religion', $profile->religion);
+                  });
+                  $pq->where(function ($cq) use ($profile) {
+                      $cq->whereNull('community')
+                         ->orWhere('community', '')
+                         ->orWhere('community', 'Open to all')
+                         ->orWhere('community', $profile->community);
+                  });
+              });
+        });
     }
 
     public function show(string $id)
@@ -151,7 +258,11 @@ class MemberController extends Controller
                 }
             })
             ->with('profile.gallery', 'profile.familyDetail', 'profile.partnerPreference', 'activeSubscription.plan')
-            ->firstOrFail();
+            ->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found.'], 404);
+        }
 
         $opposite = MemberVisibility::oppositeGender($viewer);
         if ($opposite && $user->gender !== $opposite && (!$viewer || $user->id !== $viewer->id)) {
@@ -291,20 +402,23 @@ class MemberController extends Controller
                     }
                 }
             })
-            ->firstOrFail();
+            ->first();
+
+        if (!$oppositeUser) {
+            return response()->json(['message' => 'User not found.'], 404);
+        }
 
         $astrologyService = new \App\Services\AstrologyService();
 
         $buildDetails = function ($targetUser) use ($astrologyService) {
-            if ($targetUser->dob && $targetUser->tob) {
-                $details = $astrologyService->getBirthDetails($targetUser->dob->format('Y-m-d'), $targetUser->tob);
-            } else {
-                $profile = $targetUser->profile;
-                $details = $astrologyService->getBirthDetailsFromProfile($profile->rasi ?? '0', $profile->nakshatram ?? '0');
-            }
+            $profile = $targetUser->profile;
+            $details = $astrologyService->getBirthDetailsFromProfile(
+                $profile->rasi ?? '0',
+                $profile->nakshatram ?? '0'
+            );
             $details['name'] = $targetUser->name;
-            $details['display_id'] = $targetUser->profile?->display_id ?? 'UK00' . (10000 + $targetUser->id);
-            $details['photo'] = $targetUser->profile?->photo;
+            $details['display_id'] = $profile->display_id ?? 'UK00' . (10000 + $targetUser->id);
+            $details['photo'] = $profile->photo;
             $details['gender'] = $targetUser->gender;
             return $details;
         };
@@ -339,7 +453,11 @@ class MemberController extends Controller
                     }
                 }
             })
-            ->firstOrFail();
+            ->first();
+
+        if (!$oppositeUser) {
+            return response()->json(['message' => 'User not found.'], 404);
+        }
 
         $alreadyUnlocked = $user->unlockedProfiles()
             ->where('unlocked_user_id', $oppositeUser->id)

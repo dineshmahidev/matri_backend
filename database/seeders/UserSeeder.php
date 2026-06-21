@@ -12,16 +12,23 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         // 1 Admin
-        if (!User::where('email', 'admin@matrimony.in')->exists()) {
+        $admin = User::where('role', 'admin')->first();
+        if ($admin) {
+            $admin->update([
+                'name' => 'Admin User',
+                'email' => 'uk@admin.com',
+                'password' => Hash::make('Uk@Admin@2026'),
+            ]);
+        } else {
             $admin = User::create([
                 'name' => 'Admin User',
-                'email' => 'admin@matrimony.in',
+                'email' => 'uk@admin.com',
                 'role' => 'admin',
                 'phone' => '+91 9999999999',
                 'gender' => 'male',
                 'dob' => '1990-01-01',
                 'tob' => '09:00',
-                'password' => Hash::make('password'),
+                'password' => Hash::make('Uk@Admin@2026'),
             ]);
             $this->createMemberProfile($admin, 'UK00001');
         }
@@ -42,7 +49,7 @@ class UserSeeder extends Seeder
                     'gender' => $s['gender'],
                     'dob' => '1992-05-15',
                     'tob' => '10:30',
-                    'password' => Hash::make('password'),
+'password' => Hash::make('Uk@Admin@2026'),
                 ]);
                 $this->createMemberProfile($user, 'UK00' . (10001 + $user->id));
             }
