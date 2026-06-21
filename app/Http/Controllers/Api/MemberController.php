@@ -142,6 +142,13 @@ class MemberController extends Controller
                 if (is_numeric($id)) {
                     $q->orWhere('id', (int)$id);
                 }
+                // Handle UK00 format: UK00{10000+user_id}
+                if (preg_match('/^UK00(\d{4,})$/', $id, $m)) {
+                    $userIdFromDisplay = (int)$m[1] - 10000;
+                    if ($userIdFromDisplay > 0) {
+                        $q->orWhere('id', $userIdFromDisplay);
+                    }
+                }
             })
             ->with('profile.gallery', 'profile.familyDetail', 'profile.partnerPreference', 'activeSubscription.plan')
             ->firstOrFail();
