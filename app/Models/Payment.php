@@ -4,7 +4,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Payment extends Model
 {
-    protected $fillable = ['user_id', 'subscription_id', 'invoice_id', 'plan_label', 'amount', 'status', 'paid_at'];
+    protected $fillable = ['user_id', 'subscription_id', 'invoice_id', 'plan_label', 'amount', 'status', 'paid_at', 'notes'];
     protected function casts(): array { return ['paid_at' => 'datetime']; }
 
     public function user() { return $this->belongsTo(User::class); }

@@ -329,10 +329,12 @@ class MemberController extends Controller
             ]);
         }
 
-        $cost = 5;
+        $settings = \App\Models\SiteSetting::pluck('value', 'key');
+        $cost = (int) ($settings['credit_cost_unlock'] ?? 5);
         if ($user->credits < $cost) {
             return response()->json([
-                'message' => 'Insufficient credits. Please top up your account to view contact details.'
+                'message' => 'Insufficient credits. Please top up your account to view contact details.',
+                'is_premium' => $user->isPremium(),
             ], 400);
         }
         $user->decrement('credits', $cost);

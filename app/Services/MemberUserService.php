@@ -94,6 +94,7 @@ class MemberUserService
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
             'email_verified_at' => $data['email_verified_at'] ?? now(),
+            'credits' => 0,
             'contact_quota' => $settings ? (int) $settings->free_contact_quota : 0,
             'message_quota' => $settings ? (int) $settings->free_message_quota : 0,
         ]);

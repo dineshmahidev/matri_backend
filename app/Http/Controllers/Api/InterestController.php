@@ -34,15 +34,33 @@ class InterestController extends Controller
     {
         $request->validate(['receiver_id' => 'required|exists:users,id']);
 
-        $existing = Interest::where('sender_id', $request->user()->id)->where('receiver_id', $request->receiver_id)->first();
+        $user = $request->user();
+
+        $existing = Interest::where('sender_id', $user->id)->where('receiver_id', $request->receiver_id)->first();
         if ($existing) return response()->json(['message' => 'Interest already sent'], 409);
 
+        $settings = \App\Models\SiteSetting::pluck('value', 'key');
+        $cost = (int) ($settings['credit_cost_interest'] ?? 1);
+        if ($user->credits < $cost) {
+            return response()->json([
+                'message' => 'Insufficient credits to send interest. Please top up your account.',
+                'credits' => $user->credits,
+                'is_premium' => $user->isPremium(),
+            ], 400);
+        }
+
+        $user->decrement('credits', $cost);
+
         $interest = Interest::create([
-            'sender_id' => $request->user()->id,
+            'sender_id' => $user->id,
             'receiver_id' => $request->receiver_id,
         ]);
 
-        return response()->json(['message' => 'Interest sent', 'interest' => $interest], 201);
+        return response()->json([
+            'message' => 'Interest sent',
+            'interest' => $interest,
+            'credits' => $user->fresh()->credits,
+        ], 201);
     }
 
     public function respond(Request $request, Interest $interest)

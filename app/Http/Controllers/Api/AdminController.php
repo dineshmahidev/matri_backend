@@ -9,11 +9,13 @@ use App\Models\Faq;
 use App\Models\SuccessStory;
 use App\Models\BlogPost;
 use App\Models\Plan;
+use App\Models\FamilyDetail;
+use App\Models\PartnerPreference;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use App\Http\Resources\MemberResource;
 use App\Services\StaffPerformanceService;
-use App\Services\MemberCreationService;
 use App\Services\MemberUserService;
 
 class AdminController extends Controller
@@ -190,6 +192,22 @@ class AdminController extends Controller
             'photo' => 'sometimes|nullable|string|max:2048',
             'gallery' => 'sometimes|array',
             'gallery.*' => 'string|max:2048',
+            'rasi' => 'sometimes|nullable|string|max:50',
+            'nakshatram' => 'sometimes|nullable|string|max:50',
+            'family' => 'sometimes|array',
+            'family.father' => 'sometimes|nullable|string|max:255',
+            'family.mother' => 'sometimes|nullable|string|max:255',
+            'family.siblings' => 'sometimes|nullable|string|max:500',
+            'family.familyType' => 'sometimes|nullable|string|max:100',
+            'family.familyStatus' => 'sometimes|nullable|string|max:100',
+            'partnerPrefs' => 'sometimes|array',
+            'partnerPrefs.ageRange' => 'sometimes|nullable|string|max:50',
+            'partnerPrefs.heightRange' => 'sometimes|nullable|string|max:50',
+            'partnerPrefs.religion' => 'sometimes|nullable|string|max:100',
+            'partnerPrefs.community' => 'sometimes|nullable|string|max:100',
+            'partnerPrefs.education' => 'sometimes|nullable|string|max:100',
+            'partnerPrefs.profession' => 'sometimes|nullable|string|max:100',
+            'partnerPrefs.location' => 'sometimes|nullable|string|max:100',
         ]);
 
         $userData = collect($data)->only(['name', 'email', 'phone', 'gender', 'dob', 'tob'])->toArray();
@@ -202,7 +220,7 @@ class AdminController extends Controller
             'motherTongue' => 'mother_tongue',
             'maritalStatus' => 'marital_status',
         ];
-        foreach (['bio', 'height', 'religion', 'community', 'city', 'state', 'profession', 'education', 'income', 'premium', 'verified', 'featured', 'photo'] as $field) {
+        foreach (['bio', 'height', 'religion', 'community', 'city', 'state', 'profession', 'education', 'income', 'premium', 'verified', 'featured', 'photo', 'rasi', 'nakshatram'] as $field) {
             if (array_key_exists($field, $data)) {
                 $profileData[$field] = $data[$field];
             }
@@ -217,6 +235,34 @@ class AdminController extends Controller
 
         if ($profile && count($profileData) > 0) {
             $profile->update($profileData);
+        }
+
+        // Handle family details
+        if ($profile && isset($data['family'])) {
+            $familyData = [];
+            if (array_key_exists('father', $data['family'])) $familyData['father'] = $data['family']['father'];
+            if (array_key_exists('mother', $data['family'])) $familyData['mother'] = $data['family']['mother'];
+            if (array_key_exists('siblings', $data['family'])) $familyData['siblings'] = $data['family']['siblings'];
+            if (array_key_exists('familyType', $data['family'])) $familyData['family_type'] = $data['family']['familyType'];
+            if (array_key_exists('familyStatus', $data['family'])) $familyData['family_status'] = $data['family']['familyStatus'];
+            if (count($familyData) > 0) {
+                $profile->familyDetail()->updateOrCreate([], $familyData);
+            }
+        }
+
+        // Handle partner preferences
+        if ($profile && isset($data['partnerPrefs'])) {
+            $prefData = [];
+            if (array_key_exists('ageRange', $data['partnerPrefs'])) $prefData['age_range'] = $data['partnerPrefs']['ageRange'];
+            if (array_key_exists('heightRange', $data['partnerPrefs'])) $prefData['height_range'] = $data['partnerPrefs']['heightRange'];
+            if (array_key_exists('religion', $data['partnerPrefs'])) $prefData['religion'] = $data['partnerPrefs']['religion'];
+            if (array_key_exists('community', $data['partnerPrefs'])) $prefData['community'] = $data['partnerPrefs']['community'];
+            if (array_key_exists('education', $data['partnerPrefs'])) $prefData['education'] = $data['partnerPrefs']['education'];
+            if (array_key_exists('profession', $data['partnerPrefs'])) $prefData['profession'] = $data['partnerPrefs']['profession'];
+            if (array_key_exists('location', $data['partnerPrefs'])) $prefData['location'] = $data['partnerPrefs']['location'];
+            if (count($prefData) > 0) {
+                $profile->partnerPreference()->updateOrCreate([], $prefData);
+            }
         }
 
         // Handle Plan ID updates
@@ -349,7 +395,47 @@ class AdminController extends Controller
         ]);
 
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('gallery', 'public');
+            // Inline image optimization (same logic as ProfileController::storeOptimizedImage)
+            $file = $request->file('image');
+            $maxWidth = 1000;
+            $jpegQuality = 75;
+
+            if (function_exists('imagecreatefromstring')) {
+                $contents = file_get_contents($file->getRealPath());
+                $src = @imagecreatefromstring($contents);
+
+                if ($src) {
+                    $width = imagesx($src);
+                    $height = imagesy($src);
+
+                    $newWidth = $width;
+                    $newHeight = $height;
+
+                    if ($width > $maxWidth) {
+                        $newWidth = $maxWidth;
+                        $newHeight = (int) round($height * ($maxWidth / $width));
+                    }
+
+                    $dst = imagecreatetruecolor($newWidth, $newHeight);
+                    imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+                    $filename = uniqid('img_') . '.jpg';
+                    $fullPath = storage_path('app/public/gallery/' . $filename);
+
+                    if (!is_dir(dirname($fullPath))) {
+                        mkdir(dirname($fullPath), 0755, true);
+                    }
+
+                    imagejpeg($dst, $fullPath, $jpegQuality);
+                    imagedestroy($dst);
+                    imagedestroy($src);
+
+                    $imageUrl = asset('storage/gallery/' . $filename);
+                    return response()->json(['url' => $imageUrl], 200);
+                }
+            }
+
+            $path = $file->store('gallery', 'public');
             $imageUrl = asset('storage/' . $path);
             return response()->json(['url' => $imageUrl], 200);
         }
@@ -668,6 +754,21 @@ class AdminController extends Controller
         return response()->stream($callback, 200, $headers);
     }
 
+    public function deleteLead($id) {
+        $lead = Lead::findOrFail($id);
+        $lead->delete();
+        return response()->json(['message' => 'Lead deleted']);
+    }
+
+    public function bulkDeleteLeads(Request $request) {
+        $data = $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'exists:leads,id',
+        ]);
+        Lead::whereIn('id', $data['ids'])->delete();
+        return response()->json(['message' => count($data['ids']) . ' leads deleted successfully']);
+    }
+
     public function payments() { return response()->json(Payment::with('user')->latest()->paginate(20)); }
 
     public function staff()
@@ -783,6 +884,162 @@ class AdminController extends Controller
         return response()->json([
             'message' => count($createdLeads) . ' leads uploaded and assigned successfully',
             'leads' => $createdLeads
+        ]);
+    }
+
+    public function createStaff(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:8',
+            'phone' => 'nullable|string|max:20',
+        ]);
+
+        $staff = User::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password']),
+            'phone' => $data['phone'] ?? null,
+            'role' => 'staff',
+            'email_verified_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Staff member created successfully',
+            'staff' => $this->staffPerformance->formatStaffSummary($staff),
+        ], 201);
+    }
+
+    public function updateStaff(Request $request, $id)
+    {
+        $staff = User::where('role', 'staff')->findOrFail($id);
+
+        $data = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|email|unique:users,email,' . $staff->id,
+            'phone' => 'sometimes|nullable|string|max:20',
+            'password' => 'sometimes|nullable|string|min:8',
+        ]);
+
+        $updateData = collect($data)->except('password')->toArray();
+        if (!empty($data['password'])) {
+            $updateData['password'] = Hash::make($data['password']);
+        }
+
+        $staff->update($updateData);
+
+        return response()->json([
+            'message' => 'Staff member updated successfully',
+            'staff' => $this->staffPerformance->formatStaffSummary($staff->fresh()),
+        ]);
+    }
+
+    public function deleteStaff($id)
+    {
+        $staff = User::where('role', 'staff')->findOrFail($id);
+        $staff->delete();
+
+        return response()->json(['message' => 'Staff member deleted successfully']);
+    }
+
+    public function bulkUploadUsers(Request $request)
+    {
+        $request->validate([
+            'users' => 'required|array',
+            'users.*.name' => 'required|string|max:255',
+            'users.*.email' => 'required|email|unique:users,email',
+            'users.*.phone' => 'required|string|max:20',
+            'users.*.gender' => 'required|in:male,female,other',
+            'users.*.password' => 'nullable|string',
+        ]);
+
+        $createdUsers = [];
+        $errors = [];
+
+        foreach ($request->users as $index => $userData) {
+            try {
+                $user = $this->memberUserService->create([
+                    'name' => $userData['name'],
+                    'email' => $userData['email'],
+                    'phone' => $userData['phone'],
+                    'gender' => $userData['gender'],
+                    'password' => (!empty($userData['password']) && strlen($userData['password']) >= 6) ? $userData['password'] : 'pass' . random_int(1000, 9999),
+                    'dob' => $userData['dob'] ?? null,
+                    'religion' => $userData['religion'] ?? null,
+                    'community' => $userData['community'] ?? null,
+                    'city' => $userData['city'] ?? null,
+                    'state' => $userData['state'] ?? null,
+                    'mother_tongue' => $userData['mother_tongue'] ?? null,
+                    'rasi' => $userData['rasi'] ?? null,
+                    'nakshatram' => $userData['nakshatram'] ?? null,
+                    'profile_for' => $userData['profile_for'] ?? null,
+                ]);
+
+                // Handle profile photo if URL provided
+                $profile = $user->profile;
+                if (!empty($userData['profile_pic']) && $profile) {
+                    $profile->update(['photo' => $userData['profile_pic']]);
+                }
+
+                // Handle gallery images if URLs provided
+                if (!empty($userData['gallery']) && is_array($userData['gallery']) && $profile) {
+                    foreach ($userData['gallery'] as $index => $imageUrl) {
+                        if (!empty($imageUrl)) {
+                            \App\Models\ProfileGallery::create([
+                                'member_profile_id' => $profile->id,
+                                'image_url' => $imageUrl,
+                                'sort_order' => $index,
+                            ]);
+                        }
+                    }
+                }
+
+                $createdUsers[] = [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'display_id' => $profile?->display_id,
+                ];
+            } catch (\Exception $e) {
+                $errors[] = "Row {$index} ({$userData['email']}): " . $e->getMessage();
+            }
+        }
+
+        return response()->json([
+            'message' => count($createdUsers) . ' users created successfully' . (count($errors) > 0 ? ', ' . count($errors) . ' errors' : ''),
+            'created' => $createdUsers,
+            'errors' => $errors,
+        ], count($errors) > 0 && count($createdUsers) === 0 ? 422 : 201);
+    }
+
+    public function addUserCredits(Request $request, $id)
+    {
+        $request->validate([
+            'credits' => 'required|integer|min:0|max:99999',
+            'contact_quota' => 'nullable|integer|min:0|max:99999',
+            'message_quota' => 'nullable|integer|min:0|max:99999',
+        ]);
+
+        $user = User::findOrFail($id);
+
+        $user->increment('credits', $request->credits);
+        if ($request->has('contact_quota')) {
+            $user->increment('contact_quota', $request->contact_quota);
+        }
+        if ($request->has('message_quota')) {
+            $user->increment('message_quota', $request->message_quota);
+        }
+
+        return response()->json([
+            'message' => "Added {$request->credits} credits to {$user->name}",
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'credits' => $user->credits,
+                'contact_quota' => $user->contact_quota,
+                'message_quota' => $user->message_quota,
+            ],
         ]);
     }
 }

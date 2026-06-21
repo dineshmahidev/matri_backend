@@ -78,7 +78,9 @@ class DashboardController extends Controller
                 'missing_fields' => $this->profileCompletion->missingFields($user),
                 'membership' => $user->activeSubscription?->plan?->name ?? 'Free',
                 'membership_valid_until' => $user->activeSubscription?->ends_at?->format('M d, Y'),
-                'credits' => 240, // Placeholder
+                'credits' => $user->credits,
+                'contact_quota' => $user->contact_quota,
+                'message_quota' => $user->message_quota,
             ],
             'stats' => [
                 'profile_views' => number_format($profileViews),

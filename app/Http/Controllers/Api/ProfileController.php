@@ -144,6 +144,59 @@ class ProfileController extends Controller
         return response()->json(['message' => 'No image provided'], 400);
     }
 
+    public function addGalleryImages(Request $request)
+    {
+        $request->validate([
+            'images' => 'required|array|min:1|max:6',
+            'images.*' => 'required|image|max:5120',
+        ]);
+
+        $user = $request->user();
+        $profile = $user->profile;
+
+        if (!$profile) {
+            return response()->json(['message' => 'Profile not found'], 404);
+        }
+
+        $currentCount = $profile->gallery()->count();
+        $isPremium = $user->isPremium();
+        $maxTotal = $isPremium ? 12 : 3;
+
+        $files = $request->file('images');
+        $newCount = count($files);
+
+        if (($currentCount + $newCount) > $maxTotal) {
+            $allowed = $maxTotal - $currentCount;
+            return response()->json([
+                'message' => "You can only add $allowed more image(s). Your limit is $maxTotal.",
+                'current' => $currentCount,
+                'limit' => $maxTotal,
+                'allowed' => $allowed,
+            ], 422);
+        }
+
+        $uploaded = [];
+
+        foreach ($files as $file) {
+            $path = $this->storeOptimizedImage($file, 'gallery');
+            $imageUrl = asset('storage/' . $path);
+            $sortOrder = $currentCount++;
+
+            \App\Models\ProfileGallery::create([
+                'member_profile_id' => $profile->id,
+                'image_url' => $imageUrl,
+                'sort_order' => $sortOrder,
+            ]);
+
+            $uploaded[] = $imageUrl;
+        }
+
+        return response()->json([
+            'message' => count($uploaded) . ' image(s) added to gallery',
+            'images' => $uploaded,
+        ], 201);
+    }
+
     public function deleteGalleryImage(Request $request)
     {
         $request->validate([
@@ -194,7 +247,8 @@ class ProfileController extends Controller
 
     private function storeOptimizedImage($file, string $folder): string
     {
-        $maxWidth = 1200;
+        $maxWidth = 1000;
+        $jpegQuality = 75;
 
         if (function_exists('imagecreatefromstring')) {
             $contents = file_get_contents($file->getRealPath());
@@ -204,27 +258,30 @@ class ProfileController extends Controller
                 $width = imagesx($src);
                 $height = imagesy($src);
 
+                $newWidth = $width;
+                $newHeight = $height;
+
                 if ($width > $maxWidth) {
                     $newWidth = $maxWidth;
                     $newHeight = (int) round($height * ($maxWidth / $width));
-                    $dst = imagecreatetruecolor($newWidth, $newHeight);
-                    imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-                    $filename = uniqid('img_') . '.jpg';
-                    $fullPath = storage_path('app/public/' . $folder . '/' . $filename);
-
-                    if (!is_dir(dirname($fullPath))) {
-                        mkdir(dirname($fullPath), 0755, true);
-                    }
-
-                    imagejpeg($dst, $fullPath, 82);
-                    imagedestroy($dst);
-                    imagedestroy($src);
-
-                    return $folder . '/' . $filename;
                 }
 
+                $dst = imagecreatetruecolor($newWidth, $newHeight);
+                imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+                // Only re-encode if smaller than original or already over maxWidth
+                $filename = uniqid('img_') . '.jpg';
+                $fullPath = storage_path('app/public/' . $folder . '/' . $filename);
+
+                if (!is_dir(dirname($fullPath))) {
+                    mkdir(dirname($fullPath), 0755, true);
+                }
+
+                imagejpeg($dst, $fullPath, $jpegQuality);
+                imagedestroy($dst);
                 imagedestroy($src);
+
+                return $folder . '/' . $filename;
             }
         }
 

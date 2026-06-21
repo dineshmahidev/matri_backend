@@ -40,7 +40,7 @@ class MemberResource extends JsonResource
             'isSaved' => $isSaved,
             'interestSent' => $interestSent,
             'isUnlocked' => $isUnlocked,
-            'credits' => $this->credits,
+            'credits' => ($profile?->premium || $this->activeSubscription) ? $this->credits : 0,
             'message_quota' => (int) $this->message_quota,
             'contact_quota' => (int) $this->contact_quota,
             'planCredits' => $this->activeSubscription?->plan?->credits ?? 0,

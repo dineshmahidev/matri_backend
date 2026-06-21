@@ -44,14 +44,14 @@ class SupportTicketController extends Controller
     // Admin/Staff - list all tickets
     public function adminIndex(Request $request)
     {
-        $tickets = SupportTicket::with('user')->orderBy('created_at', 'desc')->get();
+        $tickets = SupportTicket::with('user.memberProfile')->orderBy('created_at', 'desc')->get();
         return response()->json($tickets);
     }
 
     // Admin/Staff - view single ticket
     public function adminShow($id)
     {
-        $ticket = SupportTicket::with('user')->findOrFail($id);
+        $ticket = SupportTicket::with('user.memberProfile')->findOrFail($id);
         return response()->json($ticket);
     }
 

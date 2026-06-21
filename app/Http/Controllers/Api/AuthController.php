@@ -42,6 +42,7 @@ class AuthController extends Controller
             'gender' => $data['gender'] ?? null,
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
+            'credits' => 0,
             'contact_quota' => $settings ? (int)$settings->free_contact_quota : 0,
             'message_quota' => $settings ? (int)$settings->free_message_quota : 0,
         ]);

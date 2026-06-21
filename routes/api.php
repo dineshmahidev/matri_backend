@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/members/{id}/unlock', [MemberController::class, 'unlock']);
     Route::post('/profile/photo', [ProfileController::class, 'updateProfilePhoto']);
     Route::post('/profile/gallery', [ProfileController::class, 'addGalleryImage']);
+    Route::post('/profile/gallery/bulk', [ProfileController::class, 'addGalleryImages']);
     Route::delete('/profile/gallery', [ProfileController::class, 'deleteGalleryImage']);
     
     Route::get('/interests/sent', [InterestController::class, 'sent']);
@@ -150,15 +151,22 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::get('/leads', [AdminController::class, 'leads']);
         Route::put('/leads/{id}', [AdminController::class, 'updateLead']);
+        Route::delete('/leads/{id}', [AdminController::class, 'deleteLead']);
         Route::post('/leads/bulk-assign', [AdminController::class, 'bulkAssign']);
+        Route::post('/leads/bulk-delete', [AdminController::class, 'bulkDeleteLeads']);
         Route::post('/leads/import', [AdminController::class, 'importLeads']);
         Route::get('/leads/export', [AdminController::class, 'exportLeads']);
         Route::get('/payments', [AdminController::class, 'payments']);
         Route::get('/staff', [AdminController::class, 'staff']);
         Route::get('/staff/{id}', [AdminController::class, 'showStaff']);
         Route::get('/staff/{id}/performance', [AdminController::class, 'staffPerformance']);
+        Route::post('/staff', [AdminController::class, 'createStaff']);
+        Route::put('/staff/{id}', [AdminController::class, 'updateStaff']);
+        Route::delete('/staff/{id}', [AdminController::class, 'deleteStaff']);
         Route::post('/staff/{id}/upload-leads', [AdminController::class, 'uploadStaffLeads']);
         Route::get('/reports', [AdminController::class, 'reports']);
+        Route::post('/bulk-upload-users', [AdminController::class, 'bulkUploadUsers']);
+        Route::post('/users/{id}/add-credits', [AdminController::class, 'addUserCredits']);
     });
 
     // Staff routes (gate role: staff)
