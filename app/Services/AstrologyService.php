@@ -222,6 +222,45 @@ class AstrologyService
     }
 
     /**
+     * Build birth details from stored rasi/nakshatram names when DOB/TOB unavailable.
+     */
+    public function getBirthDetailsFromProfile(string $rasi, string $nakshatram): array
+    {
+        $rasiIndex = null;
+        foreach (self::$rasis as $i => $r) {
+            if (strcasecmp($r['en'], $rasi) === 0 || strcasecmp($r['ta'], $rasi) === 0) {
+                $rasiIndex = $i;
+                break;
+            }
+        }
+        if ($rasiIndex === null) {
+            $rasiIndex = (int) $rasi;
+        }
+
+        $starIndex = null;
+        foreach (self::$stars as $i => $s) {
+            if (strcasecmp($s['en'], $nakshatram) === 0 || strcasecmp($s['ta'], $nakshatram) === 0) {
+                $starIndex = $i;
+                break;
+            }
+        }
+        if ($starIndex === null) {
+            $starIndex = (int) $nakshatram;
+        }
+
+        return [
+            'longitude' => 0,
+            'star_index' => $starIndex,
+            'star' => self::$stars[$starIndex] ?? ['en' => $nakshatram, 'ta' => $nakshatram],
+            'rasi_index' => $rasiIndex,
+            'rasi' => self::$rasis[$rasiIndex] ?? ['en' => $rasi, 'ta' => $rasi],
+            'pada' => 1,
+            'dob' => null,
+            'tob' => null,
+        ];
+    }
+
+    /**
      * Matches two users (Female and Male) and returns a detailed Porutham analysis report.
      */
     public function match(array $femaleDetails, array $maleDetails): array

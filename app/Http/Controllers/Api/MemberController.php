@@ -279,37 +279,44 @@ class MemberController extends Controller
         }
 
         $oppositeUser = User::where('role', 'member')
-            ->whereHas('profile', fn($q) => $q->where('display_id', $id))
+            ->where(function ($q) use ($id) {
+                $q->whereHas('profile', fn($q) => $q->where('display_id', $id));
+                if (is_numeric($id)) {
+                    $q->orWhere('id', (int)$id);
+                }
+                if (preg_match('/^UK00(\d{4,})$/', $id, $m)) {
+                    $userIdFromDisplay = (int)$m[1] - 10000;
+                    if ($userIdFromDisplay > 0) {
+                        $q->orWhere('id', $userIdFromDisplay);
+                    }
+                }
+            })
             ->firstOrFail();
-
-        if (!$user->dob || !$user->tob || !$oppositeUser->dob || !$oppositeUser->tob) {
-            return response()->json([
-                'message' => 'Both users must have Date of Birth and Time of Birth set in their profiles to calculate Porutham matching.'
-            ], 400);
-        }
 
         $astrologyService = new \App\Services\AstrologyService();
 
+        $buildDetails = function ($targetUser) use ($astrologyService) {
+            if ($targetUser->dob && $targetUser->tob) {
+                $details = $astrologyService->getBirthDetails($targetUser->dob->format('Y-m-d'), $targetUser->tob);
+            } else {
+                $profile = $targetUser->profile;
+                $details = $astrologyService->getBirthDetailsFromProfile($profile->rasi ?? '0', $profile->nakshatram ?? '0');
+            }
+            $details['name'] = $targetUser->name;
+            $details['display_id'] = $targetUser->profile?->display_id ?? 'UK00' . (10000 + $targetUser->id);
+            $details['photo'] = $targetUser->profile?->photo;
+            $details['gender'] = $targetUser->gender;
+            return $details;
+        };
+
         // Assign female and male roles for traditional Porutham matching
         if ($user->gender === 'female' || $oppositeUser->gender === 'male') {
-            $femaleUser = $user;
-            $maleUser = $oppositeUser;
+            $femaleDetails = $buildDetails($user);
+            $maleDetails = $buildDetails($oppositeUser);
         } else {
-            $femaleUser = $oppositeUser;
-            $maleUser = $user;
+            $femaleDetails = $buildDetails($oppositeUser);
+            $maleDetails = $buildDetails($user);
         }
-
-        $femaleDetails = $astrologyService->getBirthDetails($femaleUser->dob->format('Y-m-d'), $femaleUser->tob);
-        $femaleDetails['name'] = $femaleUser->name;
-        $femaleDetails['display_id'] = $femaleUser->profile?->display_id ?? 'UK00' . (10000 + $femaleUser->id);
-        $femaleDetails['photo'] = $femaleUser->profile?->photo;
-        $femaleDetails['gender'] = $femaleUser->gender;
-
-        $maleDetails = $astrologyService->getBirthDetails($maleUser->dob->format('Y-m-d'), $maleUser->tob);
-        $maleDetails['name'] = $maleUser->name;
-        $maleDetails['display_id'] = $maleUser->profile?->display_id ?? 'UK00' . (10000 + $maleUser->id);
-        $maleDetails['photo'] = $maleUser->profile?->photo;
-        $maleDetails['gender'] = $maleUser->gender;
 
         $matchResult = $astrologyService->match($femaleDetails, $maleDetails);
 
@@ -320,7 +327,18 @@ class MemberController extends Controller
     {
         $user = $request->user();
         $oppositeUser = User::where('role', 'member')
-            ->whereHas('profile', fn($q) => $q->where('display_id', $id))
+            ->where(function ($q) use ($id) {
+                $q->whereHas('profile', fn($q) => $q->where('display_id', $id));
+                if (is_numeric($id)) {
+                    $q->orWhere('id', (int)$id);
+                }
+                if (preg_match('/^UK00(\d{4,})$/', $id, $m)) {
+                    $userIdFromDisplay = (int)$m[1] - 10000;
+                    if ($userIdFromDisplay > 0) {
+                        $q->orWhere('id', $userIdFromDisplay);
+                    }
+                }
+            })
             ->firstOrFail();
 
         $alreadyUnlocked = $user->unlockedProfiles()
