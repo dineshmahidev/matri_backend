@@ -167,6 +167,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports', [AdminController::class, 'reports']);
         Route::post('/bulk-upload-users', [AdminController::class, 'bulkUploadUsers']);
         Route::post('/users/{id}/add-credits', [AdminController::class, 'addUserCredits']);
+
+        // Reference data: Castes & Religions
+        Route::get('/religions', [AdminController::class, 'getReligions']);
+        Route::post('/religions', [AdminController::class, 'createReligion']);
+        Route::put('/religions/{id}', [AdminController::class, 'updateReligion']);
+        Route::delete('/religions/{id}', [AdminController::class, 'deleteReligion']);
+        Route::get('/castes', [AdminController::class, 'getCastes']);
+        Route::post('/castes', [AdminController::class, 'createCaste']);
+        Route::put('/castes/{id}', [AdminController::class, 'updateCaste']);
+        Route::delete('/castes/{id}', [AdminController::class, 'deleteCaste']);
     });
 
     // Staff routes (gate role: staff)

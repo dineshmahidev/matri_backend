@@ -58,7 +58,12 @@ class ProfileController extends Controller
 
         if (isset($data['name'])) $user->update(['name' => $data['name']]);
         if (isset($data['phone'])) $user->update(['phone' => $data['phone']]);
-        if (array_key_exists('dob', $data)) $user->update(['dob' => $data['dob']]);
+        if (array_key_exists('dob', $data)) {
+            $user->update(['dob' => $data['dob']]);
+            if ($data['dob'] && $profile) {
+                $profile->update(['age' => \Carbon\Carbon::parse($data['dob'])->age]);
+            }
+        }
         if (array_key_exists('tob', $data)) $user->update(['tob' => $data['tob']]);
 
         if (isset($data['family']) && $profile) {

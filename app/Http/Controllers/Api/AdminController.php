@@ -11,8 +11,11 @@ use App\Models\BlogPost;
 use App\Models\Plan;
 use App\Models\FamilyDetail;
 use App\Models\PartnerPreference;
+use App\Models\Religion;
+use App\Models\Caste;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Resources\MemberResource;
 use App\Services\StaffPerformanceService;
@@ -213,6 +216,10 @@ class AdminController extends Controller
         $userData = collect($data)->only(['name', 'email', 'phone', 'gender', 'dob', 'tob'])->toArray();
         if (count($userData) > 0) {
             $user->update($userData);
+        }
+
+        if (array_key_exists('dob', $data) && $data['dob'] && $profile) {
+            $profile->update(['age' => \Carbon\Carbon::parse($data['dob'])->age]);
         }
 
         $profileData = [];
@@ -1041,5 +1048,76 @@ class AdminController extends Controller
                 'message_quota' => $user->message_quota,
             ],
         ]);
+    }
+
+    // ---- Castes & Religions CRUD ----
+
+    public function getReligions()
+    {
+        return response()->json(Religion::orderBy('name')->get(['id', 'name']));
+    }
+
+    public function createReligion(Request $request)
+    {
+        $validated = $request->validate(['name' => 'required|string|max:100|unique:religions,name']);
+        $maxId = Religion::max('id') ?? 0;
+        $religion = Religion::create(['id' => $maxId + 1, 'name' => $validated['name']]);
+        Cache::forget('ref:religions');
+        return response()->json($religion, 201);
+    }
+
+    public function updateReligion(Request $request, $id)
+    {
+        $religion = Religion::findOrFail($id);
+        $validated = $request->validate(['name' => 'required|string|max:100|unique:religions,name,' . $id]);
+        $religion->update($validated);
+        Cache::forget('ref:religions');
+        return response()->json($religion);
+    }
+
+    public function deleteReligion($id)
+    {
+        $religion = Religion::findOrFail($id);
+        Caste::where('religion_id', $id)->delete();
+        $religion->delete();
+        Cache::forget('ref:religions');
+        return response()->json(['message' => 'Religion and its castes deleted.']);
+    }
+
+    public function getCastes(Request $request)
+    {
+        $query = Caste::orderBy('name');
+        if ($request->filled('religion_id')) {
+            $query->where('religion_id', $request->religion_id);
+        }
+        return response()->json($query->get(['id', 'religion_id', 'name']));
+    }
+
+    public function createCaste(Request $request)
+    {
+        $validated = $request->validate([
+            'religion_id' => 'required|exists:religions,id',
+            'name' => 'required|string|max:100',
+        ]);
+        $maxId = Caste::max('id') ?? 0;
+        $caste = Caste::create(['id' => $maxId + 1, 'religion_id' => $validated['religion_id'], 'name' => $validated['name']]);
+        return response()->json($caste, 201);
+    }
+
+    public function updateCaste(Request $request, $id)
+    {
+        $caste = Caste::findOrFail($id);
+        $validated = $request->validate([
+            'religion_id' => 'sometimes|exists:religions,id',
+            'name' => 'sometimes|string|max:100',
+        ]);
+        $caste->update($validated);
+        return response()->json($caste);
+    }
+
+    public function deleteCaste($id)
+    {
+        Caste::findOrFail($id)->delete();
+        return response()->json(['message' => 'Caste deleted.']);
     }
 }

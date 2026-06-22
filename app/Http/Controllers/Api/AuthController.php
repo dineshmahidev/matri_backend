@@ -47,6 +47,8 @@ class AuthController extends Controller
             'message_quota' => $settings ? (int)$settings->free_message_quota : 0,
         ]);
 
+        $age = $data['dob'] ? \Carbon\Carbon::parse($data['dob'])->age : null;
+
         // Create basic profile
         $user->profile()->create([
             'display_id' => 'UK00' . (10000 + $user->id),
@@ -56,6 +58,7 @@ class AuthController extends Controller
             'city' => $data['city'] ?? null,
             'state' => $data['state'] ?? null,
             'country' => 'India',
+            'age' => $age,
         ]);
 
         // Auto verify email since OTP is removed
