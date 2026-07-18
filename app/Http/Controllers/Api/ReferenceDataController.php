@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BloodGroup;
 use App\Models\Caste;
 use App\Models\City;
 use App\Models\Religion;
@@ -15,7 +16,7 @@ class ReferenceDataController extends Controller
     public function religions()
     {
         $data = Cache::remember('ref:religions', 86400, fn() =>
-            Religion::orderBy('name')->get(['id', 'name'])
+            Religion::where('is_active', true)->orderBy('name')->get(['id', 'name'])
         );
         return response()->json($data);
     }
@@ -24,7 +25,7 @@ class ReferenceDataController extends Controller
     {
         $cacheKey = 'ref:castes:' . ($request->religion_id ?? 'all') . ':' . md5($request->religion ?? '');
         $data = Cache::remember($cacheKey, 86400, function () use ($request) {
-            $query = Caste::orderBy('name');
+            $query = Caste::where('is_active', true)->orderBy('name');
 
             if ($request->filled('religion_id')) {
                 $query->where('religion_id', $request->religion_id);
@@ -43,7 +44,7 @@ class ReferenceDataController extends Controller
     public function states()
     {
         $data = Cache::remember('ref:states', 86400, fn() =>
-            State::orderBy('name')->get(['id', 'name'])
+            State::where('is_active', true)->orderBy('name')->get(['id', 'name'])
         );
         return response()->json($data);
     }
@@ -52,7 +53,7 @@ class ReferenceDataController extends Controller
     {
         $cacheKey = 'ref:cities:' . ($request->state_id ?? 'all') . ':' . md5($request->state ?? '');
         $data = Cache::remember($cacheKey, 86400, function () use ($request) {
-            $query = City::orderBy('name');
+            $query = City::where('is_active', true)->orderBy('name');
 
             if ($request->filled('state_id')) {
                 $query->where('state_id', $request->state_id);
@@ -66,5 +67,10 @@ class ReferenceDataController extends Controller
             return $query->limit($request->integer('limit', 500))->get(['id', 'state_id', 'name']);
         });
         return response()->json($data);
+    }
+
+    public function bloodGroups()
+    {
+        return response()->json(BloodGroup::where('is_active', true)->orderBy('name')->get());
     }
 }

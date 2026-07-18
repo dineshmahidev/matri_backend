@@ -67,15 +67,8 @@ class MemberUserService
             $profile['mother_tongue'] = $data['mother_tongue'];
         }
 
-        if (!empty($data['rasi'])) {
-            $profile['rasi'] = $data['rasi'];
-        }
-        if (!empty($data['nakshatram'])) {
-            $profile['nakshatram'] = $data['nakshatram'];
-        }
-
         if (!empty($data['dob'])) {
-            $profile['age'] = now()->diffInYears($data['dob']);
+            $profile['age'] = abs(now()->diffInYears($data['dob']));
         }
 
         return $profile;
@@ -83,7 +76,7 @@ class MemberUserService
 
     public function create(array $data): User
     {
-        $settings = SiteSetting::first();
+        $settings = SiteSetting::pluck('value', 'key');
 
         $user = User::create([
             'name' => $data['name'],
@@ -94,9 +87,9 @@ class MemberUserService
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
             'email_verified_at' => $data['email_verified_at'] ?? now(),
-            'credits' => 0,
-            'contact_quota' => $settings ? (int) $settings->free_contact_quota : 0,
-            'message_quota' => $settings ? (int) $settings->free_message_quota : 0,
+            'credits' => (int) ($settings['free_interest_credits'] ?? 2),
+            'contact_quota' => (int) ($settings['free_contact_quota'] ?? 30),
+            'message_quota' => (int) ($settings['free_message_quota'] ?? 50),
         ]);
 
         $profileData = array_merge([

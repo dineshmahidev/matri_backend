@@ -6,13 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
     protected $fillable = [
-        'name', 'email', 'password', 'role', 'credits', 'contact_quota', 'message_quota', 'phone', 'company_mobile', 'salary', 'gender', 'dob', 'tob', 'otp', 'otp_expires_at', 'photo',
+        'name', 'email', 'password', 'role', 'credits', 'contact_quota', 'message_quota', 'phone', 'company_mobile', 'salary', 'gender', 'dob', 'otp', 'otp_expires_at', 'photo',
     ];
 
     protected $hidden = [
@@ -70,6 +71,16 @@ class User extends Authenticatable
         return $this->belongsToMany(User::class, 'saved_profiles', 'user_id', 'saved_user_id')->withTimestamps();
     }
 
+    public function blockedUsers()
+    {
+        return $this->belongsToMany(User::class, 'user_blocks', 'blocker_id', 'blocked_id')->withTimestamps();
+    }
+
+    public function blockedByUsers()
+    {
+        return $this->belongsToMany(User::class, 'user_blocks', 'blocked_id', 'blocker_id')->withTimestamps();
+    }
+
     public function assignedLeads()
     {
         return $this->hasMany(Lead::class, 'assigned_to');
@@ -83,6 +94,11 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
+    }
+
+    public function isManager(): bool
+    {
+        return $this->role === 'manager';
     }
 
     public function isStaff(): bool

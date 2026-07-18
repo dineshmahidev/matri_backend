@@ -38,4 +38,19 @@ class MemberVisibility
 
         return $query;
     }
+
+    /**
+     * Exclude users that the viewer has blocked, and users who have blocked the viewer.
+     */
+    public static function applyBlockScope(Builder $query, ?User $viewer): Builder
+    {
+        if ($viewer) {
+            $query->whereNotIn('id', function($q) use ($viewer) {
+                $q->select('blocked_id')->from('user_blocks')->where('blocker_id', $viewer->id);
+            })->whereNotIn('id', function($q) use ($viewer) {
+                $q->select('blocker_id')->from('user_blocks')->where('blocked_id', $viewer->id);
+            });
+        }
+        return $query;
+    }
 }

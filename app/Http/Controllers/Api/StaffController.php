@@ -162,9 +162,39 @@ class StaffController extends Controller
 
     public function leads(Request $request)
     {
-        return response()->json(
-            Lead::where('assigned_to', $request->user()->id)->latest()->paginate(20)
-        );
+        $query = Lead::with(['assignedStaff', 'creator'])
+            ->where(function ($q) use ($request) {
+                $q->where('assigned_to', $request->user()->id)
+                  ->orWhere('created_by', $request->user()->id);
+            });
+
+        if ($request->filled('date_filter')) {
+            if ($request->date_filter === 'today') {
+                $query->whereDate('created_at', today());
+            } elseif ($request->date_filter === 'this_month') {
+                $query->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year);
+            }
+        }
+
+        return response()->json($query->latest()->paginate(20));
+    }
+
+    public function createLead(Request $request) {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'phone' => 'required|string|max:20',
+            'email' => 'nullable|string|max:255',
+            'source' => 'nullable|string|max:100',
+            'status' => 'nullable|in:New,Contacted,Qualified,Converted',
+        ]);
+        
+        $data['display_id'] = 'L' . strtoupper(uniqid());
+        $data['created_by'] = $request->user()->id;
+        $data['assigned_to'] = $request->user()->id; // auto-assign to staff who created it
+        if (!isset($data['status'])) $data['status'] = 'New';
+        
+        $lead = Lead::create($data);
+        return response()->json(['message' => 'Lead created successfully', 'lead' => $lead->load('assignedStaff', 'creator')]);
     }
 
     public function showLead(Lead $lead, Request $request)

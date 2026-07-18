@@ -8,7 +8,7 @@ class Religion extends Model
 {
     public $incrementing = false;
 
-    protected $fillable = ['id', 'name'];
+    protected $fillable = ['id', 'name', 'is_active'];
 
     public function castes()
     {

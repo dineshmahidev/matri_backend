@@ -28,6 +28,12 @@ class MemberResource extends JsonResource
                 ->where('receiver_id', $this->id)
                 ->exists();
             $isUnlocked = ($user->id === $this->id) || ($this->viewer_unlocked ?? $user->unlockedProfiles()->where('unlocked_user_id', $this->id)->exists());
+            
+            $isBlockedByMe = $this->viewer_blocked_by_me ?? $user->blockedUsers()->where('blocked_id', $this->id)->exists();
+            $hasBlockedMe = $this->viewer_has_blocked_me ?? $user->blockedByUsers()->where('blocker_id', $this->id)->exists();
+        } else {
+            $isBlockedByMe = false;
+            $hasBlockedMe = false;
         }
 
         $isAdminOrStaff = $user && in_array($user->role, ['admin', 'staff']);
@@ -40,7 +46,9 @@ class MemberResource extends JsonResource
             'isSaved' => $isSaved,
             'interestSent' => $interestSent,
             'isUnlocked' => $isUnlocked,
-            'credits' => ($profile?->premium || $this->activeSubscription) ? $this->credits : 0,
+            'isBlockedByMe' => $isBlockedByMe,
+            'hasBlockedMe' => $hasBlockedMe,
+            'credits' => (int) $this->credits,
             'message_quota' => (int) $this->message_quota,
             'contact_quota' => (int) $this->contact_quota,
             'planCredits' => $this->activeSubscription?->plan?->credits ?? 0,
@@ -51,7 +59,6 @@ class MemberResource extends JsonResource
             'name' => $this->name,
             'gender' => $this->gender,
             'dob' => $this->dob ? $this->dob->format('Y-m-d') : null,
-            'tob' => $this->tob,
             'age' => $profile?->age,
             'height' => $profile?->height,
             'blood_group' => $profile?->blood_group,
@@ -69,8 +76,9 @@ class MemberResource extends JsonResource
             'photo' => $profile?->photo,
             'gallery' => $profile?->gallery?->pluck('image_url') ?? [],
             'bio' => $profile?->bio,
-            'rasi' => $profile?->rasi,
-            'nakshatram' => $profile?->nakshatram,
+            'smoking_status' => $profile?->smoking_status ?? 'no',
+            'drinking_status' => $profile?->drinking_status ?? 'no',
+            'disability' => $profile?->disability ?? 'no',
             'premium' => (bool) $profile?->premium,
             'featured' => (bool) $profile?->featured,
             'planId' => $this->activeSubscription?->plan_id,

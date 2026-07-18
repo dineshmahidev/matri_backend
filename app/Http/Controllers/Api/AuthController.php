@@ -30,9 +30,12 @@ class AuthController extends Controller
             'profile_for' => 'nullable|string',
             'city' => 'nullable|string',
             'state' => 'nullable|string',
+            'smoking_status' => 'nullable|in:yes,no',
+            'drinking_status' => 'nullable|in:yes,no',
+            'disability' => 'nullable|in:yes,no',
         ]);
 
-        $settings = \App\Models\SiteSetting::first();
+        $settings = \App\Models\SiteSetting::pluck('value', 'key');
         
         $user = User::create([
             'name' => $data['name'],
@@ -42,9 +45,9 @@ class AuthController extends Controller
             'gender' => $data['gender'] ?? null,
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
-            'credits' => 0,
-            'contact_quota' => $settings ? (int)$settings->free_contact_quota : 0,
-            'message_quota' => $settings ? (int)$settings->free_message_quota : 0,
+            'credits' => (int) ($settings['free_interest_credits'] ?? 2),
+            'contact_quota' => (int) ($settings['free_contact_quota'] ?? 30),
+            'message_quota' => (int) ($settings['free_message_quota'] ?? 50),
         ]);
 
         $age = $data['dob'] ? \Carbon\Carbon::parse($data['dob'])->age : null;
@@ -59,6 +62,9 @@ class AuthController extends Controller
             'state' => $data['state'] ?? null,
             'country' => 'India',
             'age' => $age,
+            'smoking_status' => $data['smoking_status'] ?? 'no',
+            'drinking_status' => $data['drinking_status'] ?? 'no',
+            'disability' => $data['disability'] ?? 'no',
         ]);
 
         // Auto verify email since OTP is removed
@@ -220,5 +226,12 @@ class AuthController extends Controller
         $user->update(['password' => Hash::make($request->new_password)]);
 
         return response()->json(['message' => 'Password changed successfully.']);
+    }
+
+    public function checkEmail(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+        $exists = User::where('email', $request->email)->exists();
+        return response()->json(['available' => !$exists]);
     }
 }

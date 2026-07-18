@@ -13,6 +13,9 @@ use App\Models\FamilyDetail;
 use App\Models\PartnerPreference;
 use App\Models\Religion;
 use App\Models\Caste;
+use App\Models\State;
+use App\Models\City;
+use App\Models\BloodGroup;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cache;
@@ -79,7 +82,7 @@ class AdminController extends Controller
                 'premiumUsers' => $premiumUsers,
                 'revenue' => Payment::where('status', 'paid')->sum('amount'),
                 'newSignups' => User::where('role', 'member')->whereDate('created_at', today())->count(),
-                'matches' => rand(1500, 2000),
+                'matches' => \App\Models\Interest::count() ?: \App\Models\SuccessStory::count(),
             ],
             'revenueChart' => [
                 ['month' => 'Jan', 'revenue' => 820000, 'signups' => 240],
@@ -124,11 +127,19 @@ class AdminController extends Controller
 
         if ($request->filled('has_gallery')) {
             if ($request->has_gallery === 'yes') {
-                $query->whereHas('profile.gallery');
+                $query->where(function ($q) {
+                    $q->whereHas('profile.gallery')
+                      ->orWhereHas('profile', fn($p) => $p->whereNotNull('photo')->where('photo', '!=', ''));
+                });
             } elseif ($request->has_gallery === 'no') {
                 $query->where(function ($q) {
                     $q->whereDoesntHave('profile')
-                        ->orWhereHas('profile', fn($p) => $p->whereDoesntHave('gallery'));
+                        ->orWhereHas('profile', function ($p) {
+                            $p->whereDoesntHave('gallery')
+                               ->where(function ($inner) {
+                                   $inner->whereNull('photo')->orWhere('photo', '');
+                               });
+                        });
                 });
             }
         }
@@ -155,11 +166,24 @@ class AdminController extends Controller
             }
         }
 
-        if ($request->boolean('all')) {
-            return MemberResource::collection($query->latest()->get());
+        $baseCountQuery = clone $query;
+
+        if ($request->filled('gender') && $request->gender !== 'all') {
+            $query->where('gender', $request->gender);
         }
 
-        return MemberResource::collection($query->latest()->paginate(20));
+        $additional = [
+            'counts' => [
+                'male' => (clone $baseCountQuery)->where('gender', 'male')->count(),
+                'female' => (clone $baseCountQuery)->where('gender', 'female')->count(),
+            ]
+        ];
+
+        if ($request->boolean('all')) {
+            return MemberResource::collection($query->latest()->get())->additional($additional);
+        }
+
+        return MemberResource::collection($query->latest()->paginate(20))->additional($additional);
     }
 
     public function updateUser(Request $request, $id)
@@ -173,8 +197,10 @@ class AdminController extends Controller
             'phone' => 'sometimes|nullable|string|max:20',
             'gender' => 'sometimes|required|in:male,female,other',
             'dob' => 'sometimes|nullable|date',
-            'tob' => 'sometimes|nullable|string|max:20',
             'bio' => 'sometimes|nullable|string|max:1000',
+            'smoking_status' => 'sometimes|nullable|in:yes,no',
+            'drinking_status' => 'sometimes|nullable|in:yes,no',
+            'disability' => 'sometimes|nullable|in:yes,no',
             'height' => 'sometimes|nullable|string',
             'religion' => 'sometimes|nullable|string',
             'community' => 'sometimes|nullable|string',
@@ -195,8 +221,6 @@ class AdminController extends Controller
             'photo' => 'sometimes|nullable|string|max:2048',
             'gallery' => 'sometimes|array',
             'gallery.*' => 'string|max:2048',
-            'rasi' => 'sometimes|nullable|string|max:50',
-            'nakshatram' => 'sometimes|nullable|string|max:50',
             'family' => 'sometimes|array',
             'family.father' => 'sometimes|nullable|string|max:255',
             'family.mother' => 'sometimes|nullable|string|max:255',
@@ -213,7 +237,7 @@ class AdminController extends Controller
             'partnerPrefs.location' => 'sometimes|nullable|string|max:100',
         ]);
 
-        $userData = collect($data)->only(['name', 'email', 'phone', 'gender', 'dob', 'tob'])->toArray();
+        $userData = collect($data)->only(['name', 'email', 'phone', 'gender', 'dob'])->toArray();
         if (count($userData) > 0) {
             $user->update($userData);
         }
@@ -227,7 +251,7 @@ class AdminController extends Controller
             'motherTongue' => 'mother_tongue',
             'maritalStatus' => 'marital_status',
         ];
-        foreach (['bio', 'height', 'religion', 'community', 'city', 'state', 'profession', 'education', 'income', 'premium', 'verified', 'featured', 'photo', 'rasi', 'nakshatram'] as $field) {
+        foreach (['bio', 'height', 'religion', 'community', 'city', 'state', 'profession', 'education', 'income', 'premium', 'verified', 'featured', 'photo', 'smoking_status', 'drinking_status', 'disability'] as $field) {
             if (array_key_exists($field, $data)) {
                 $profileData[$field] = $data[$field];
             }
@@ -351,6 +375,61 @@ class AdminController extends Controller
         return response()->json(['message' => 'Selected users deleted successfully']);
     }
 
+    public function bulkPremiumUsers(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'exists:users,id',
+            'premium' => 'required|boolean',
+            'plan_id' => 'nullable|exists:plans,id',
+        ]);
+
+        \App\Models\MemberProfile::whereIn('user_id', $request->ids)->update([
+            'premium' => $request->premium
+        ]);
+
+        if ($request->premium && $request->filled('plan_id')) {
+            $plan = \App\Models\Plan::find($request->plan_id);
+            foreach ($request->ids as $userId) {
+                $user = User::find($userId);
+                if ($user && $plan) {
+                    // Update user stats according to plan allowances
+                    $user->update([
+                        'credits' => $user->credits + $plan->credits,
+                        'contact_quota' => $user->contact_quota + $plan->contact_quota,
+                        'message_quota' => $user->message_quota + $plan->message_quota,
+                    ]);
+
+                    // Add subscription record
+                    \App\Models\Subscription::create([
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'starts_at' => now(),
+                        'ends_at' => now()->addDays(30), // standard 30 day package duration
+                        'status' => 'active',
+                    ]);
+                }
+            }
+        }
+
+        return response()->json(['message' => 'Selected users premium status and membership plan updated successfully']);
+    }
+
+    public function bulkVerifyUsers(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'exists:users,id',
+            'verified' => 'required|boolean',
+        ]);
+
+        \App\Models\MemberProfile::whereIn('user_id', $request->ids)->update([
+            'verified' => $request->verified
+        ]);
+
+        return response()->json(['message' => 'Selected users verification status updated successfully']);
+    }
+
     public function changePassword(Request $request, $id)
     {
         $user = User::where('role', 'member')->findOrFail($id);
@@ -382,8 +461,6 @@ class AdminController extends Controller
             'city_id' => 'nullable|integer|exists:cities,id',
             'city' => 'required_without:city_id|string|max:100',
             'mother_tongue' => 'nullable|string|max:50',
-            'rasi' => 'nullable|string|max:50',
-            'nakshatram' => 'nullable|string|max:50',
             'profile_for' => 'nullable|string|max:50',
         ]);
 
@@ -399,10 +476,13 @@ class AdminController extends Controller
     {
         $request->validate([
             'image' => 'required|image|max:5120',
+            'type' => 'nullable|string|in:profile,gallery',
         ]);
 
+        $type = $request->input('type', 'profile');
+        $folder = $type === 'gallery' ? 'gallery' : 'photos';
+
         if ($request->hasFile('image')) {
-            // Inline image optimization (same logic as ProfileController::storeOptimizedImage)
             $file = $request->file('image');
             $maxWidth = 1000;
             $jpegQuality = 75;
@@ -427,7 +507,7 @@ class AdminController extends Controller
                     imagecopyresampled($dst, $src, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
                     $filename = uniqid('img_') . '.jpg';
-                    $fullPath = storage_path('app/public/gallery/' . $filename);
+                    $fullPath = storage_path("app/public/{$folder}/" . $filename);
 
                     if (!is_dir(dirname($fullPath))) {
                         mkdir(dirname($fullPath), 0755, true);
@@ -437,12 +517,12 @@ class AdminController extends Controller
                     imagedestroy($dst);
                     imagedestroy($src);
 
-                    $imageUrl = asset('storage/gallery/' . $filename);
+                    $imageUrl = asset("storage/{$folder}/" . $filename);
                     return response()->json(['url' => $imageUrl], 200);
                 }
             }
 
-            $path = $file->store('gallery', 'public');
+            $path = $file->store($folder, 'public');
             $imageUrl = asset('storage/' . $path);
             return response()->json(['url' => $imageUrl], 200);
         }
@@ -644,6 +724,10 @@ class AdminController extends Controller
             'contact_quota' => 'nullable|integer|min:0',
             'message_quota' => 'nullable|integer|min:0',
             'credits' => 'nullable|integer|min:0',
+            'interest_express_limit' => 'nullable|integer|min:-1',
+            'profile_show_limit' => 'nullable|integer|min:-1',
+            'image_upload_limit' => 'nullable|integer|min:-1',
+            'is_active' => 'boolean',
         ]);
         $data['slug'] = strtolower(str_replace(' ', '-', $data['name']));
         $plan = Plan::create($data);
@@ -663,6 +747,10 @@ class AdminController extends Controller
             'contact_quota' => 'nullable|integer|min:0',
             'message_quota' => 'nullable|integer|min:0',
             'credits' => 'nullable|integer|min:0',
+            'interest_express_limit' => 'nullable|integer|min:-1',
+            'profile_show_limit' => 'nullable|integer|min:-1',
+            'image_upload_limit' => 'nullable|integer|min:-1',
+            'is_active' => 'boolean',
         ]);
         $data['slug'] = strtolower(str_replace(' ', '-', $data['name']));
         $plan->update($data);
@@ -676,7 +764,7 @@ class AdminController extends Controller
     }
 
     public function leads(Request $request) {
-        $query = Lead::with('assignedStaff')->select('leads.*');
+        $query = Lead::with(['assignedStaff', 'creator'])->select('leads.*');
         if ($request->filled('status') && $request->status !== 'All') {
             $query->where('status', $request->status);
         }
@@ -687,7 +775,35 @@ class AdminController extends Controller
                 $query->where('assigned_to', $request->assigned_to);
             }
         }
+        if ($request->filled('created_by')) {
+            $query->where('created_by', $request->created_by);
+        }
+        if ($request->filled('date_filter')) {
+            if ($request->date_filter === 'today') {
+                $query->whereDate('created_at', today());
+            } elseif ($request->date_filter === 'this_month') {
+                $query->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year);
+            }
+        }
         return response()->json($query->latest()->paginate(20));
+    }
+
+    public function createLead(Request $request) {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'phone' => 'required|string|max:20',
+            'email' => 'nullable|string|max:255',
+            'source' => 'nullable|string|max:100',
+            'status' => 'nullable|in:New,Contacted,Qualified,Converted',
+            'assigned_to' => 'nullable|exists:users,id,role,staff',
+        ]);
+        
+        $data['display_id'] = 'L' . strtoupper(uniqid());
+        $data['created_by'] = $request->user()->id;
+        if (!isset($data['status'])) $data['status'] = 'New';
+        
+        $lead = Lead::create($data);
+        return response()->json(['message' => 'Lead created successfully', 'lead' => $lead->load('assignedStaff', 'creator')]);
     }
 
     public function updateLead(Request $request, $id) {
@@ -777,6 +893,20 @@ class AdminController extends Controller
     }
 
     public function payments() { return response()->json(Payment::with('user')->latest()->paginate(20)); }
+
+    public function updatePayment(Request $request, $id)
+    {
+        $payment = Payment::findOrFail($id);
+        $data = $request->validate([
+            'status' => 'nullable|in:paid,pending,failed,refunded',
+            'notes' => 'nullable|string|max:500',
+            'razorpay_order_id' => 'nullable|string|max:40',
+            'razorpay_payment_id' => 'nullable|string|max:40',
+        ]);
+
+        $payment->update($data);
+        return response()->json(['message' => 'Payment updated successfully', 'payment' => $payment]);
+    }
 
     public function staff()
     {
@@ -901,7 +1031,12 @@ class AdminController extends Controller
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8',
             'phone' => 'nullable|string|max:20',
+            'role' => 'required|string|exists:roles,name',
         ]);
+
+        if (in_array($data['role'], ['super-admin', 'admin'])) {
+            return response()->json(['message' => 'Cannot assign admin roles'], 403);
+        }
 
         $staff = User::create([
             'name' => $data['name'],
@@ -911,6 +1046,8 @@ class AdminController extends Controller
             'role' => 'staff',
             'email_verified_at' => now(),
         ]);
+        
+        $staff->assignRole($data['role']);
 
         return response()->json([
             'message' => 'Staff member created successfully',
@@ -950,27 +1087,262 @@ class AdminController extends Controller
         return response()->json(['message' => 'Staff member deleted successfully']);
     }
 
+    // ─── Reference Data Management ─────────────────────────────────────
+
+    public function getReligions()
+    {
+        return response()->json(Religion::orderBy('name')->get(['id', 'name']));
+    }
+
+    public function getCastes(Request $request)
+    {
+        $query = Caste::orderBy('name');
+        if ($request->filled('religion_id')) {
+            $query->where('religion_id', $request->religion_id);
+        }
+        return response()->json($query->get(['id', 'religion_id', 'name']));
+    }
+
+    public function getAllReferenceData()
+    {
+        return response()->json([
+            'religions' => Religion::orderBy('name')->get(),
+            'castes' => Caste::with('religion')->orderBy('name')->get(),
+            'states' => State::orderBy('name')->get(),
+            'cities' => City::with('state')->orderBy('name')->get(),
+            'blood_groups' => BloodGroup::orderBy('name')->get(),
+        ]);
+    }
+
+    public function createReligion(Request $request)
+    {
+        $data = $request->validate(['name' => 'required|string|max:100']);
+        $maxId = Religion::max('id') ?? 0;
+        $religion = Religion::create(['id' => $maxId + 1, 'name' => $data['name']]);
+        Cache::forget('ref:religions');
+        return response()->json($religion, 201);
+    }
+
+    public function updateReligion(Request $request, $id)
+    {
+        $religion = Religion::findOrFail($id);
+        $data = $request->validate(['name' => 'required|string|max:100']);
+        $religion->update($data);
+        Cache::forget('ref:religions');
+        return response()->json($religion);
+    }
+
+    public function toggleReligion($id)
+    {
+        $religion = Religion::findOrFail($id);
+        $religion->update(['is_active' => !$religion->is_active]);
+        Cache::forget('ref:religions');
+        return response()->json(['message' => 'Religion status toggled', 'is_active' => $religion->fresh()->is_active]);
+    }
+
+    public function createCaste(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:100',
+            'religion_id' => 'required|exists:religions,id',
+        ]);
+        $maxId = Caste::max('id') ?? 0;
+        $caste = Caste::create(['id' => $maxId + 1, 'name' => $data['name'], 'religion_id' => $data['religion_id']]);
+        Cache::forget('ref:castes:*');
+        return response()->json($caste->load('religion'), 201);
+    }
+
+    public function updateCaste(Request $request, $id)
+    {
+        $caste = Caste::findOrFail($id);
+        $data = $request->validate(['name' => 'required|string|max:100', 'religion_id' => 'nullable|exists:religions,id']);
+        $caste->update($data);
+        Cache::forget('ref:castes:*');
+        return response()->json($caste->load('religion'));
+    }
+
+    public function toggleCaste($id)
+    {
+        $caste = Caste::findOrFail($id);
+        $caste->update(['is_active' => !$caste->is_active]);
+        Cache::forget('ref:castes:*');
+        return response()->json(['message' => 'Caste status toggled', 'is_active' => $caste->fresh()->is_active]);
+    }
+
+    public function createState(Request $request)
+    {
+        $data = $request->validate(['name' => 'required|string|max:255']);
+        $maxId = State::max('id') ?? 0;
+        $state = State::create(['id' => $maxId + 1, 'name' => $data['name']]);
+        Cache::forget('ref:states');
+        return response()->json($state, 201);
+    }
+
+    public function updateState(Request $request, $id)
+    {
+        $state = State::findOrFail($id);
+        $data = $request->validate(['name' => 'required|string|max:255']);
+        $state->update($data);
+        Cache::forget('ref:states');
+        return response()->json($state);
+    }
+
+    public function toggleState($id)
+    {
+        $state = State::findOrFail($id);
+        $state->update(['is_active' => !$state->is_active]);
+        Cache::forget('ref:states');
+        return response()->json(['message' => 'State status toggled', 'is_active' => $state->fresh()->is_active]);
+    }
+
+    public function createCity(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'state_id' => 'required|exists:states,id',
+        ]);
+        $maxId = City::max('id') ?? 0;
+        $city = City::create(['id' => $maxId + 1, 'name' => $data['name'], 'state_id' => $data['state_id']]);
+        Cache::forget('ref:cities:*');
+        return response()->json($city->load('state'), 201);
+    }
+
+    public function updateCity(Request $request, $id)
+    {
+        $city = City::findOrFail($id);
+        $data = $request->validate(['name' => 'required|string|max:255', 'state_id' => 'nullable|exists:states,id']);
+        $city->update($data);
+        Cache::forget('ref:cities:*');
+        return response()->json($city->load('state'));
+    }
+
+    public function toggleCity($id)
+    {
+        $city = City::findOrFail($id);
+        $city->update(['is_active' => !$city->is_active]);
+        Cache::forget('ref:cities:*');
+        return response()->json(['message' => 'City status toggled', 'is_active' => $city->fresh()->is_active]);
+    }
+
+    public function getBloodGroups()
+    {
+        return response()->json(BloodGroup::orderBy('name')->get());
+    }
+
+    public function createBloodGroup(Request $request)
+    {
+        $data = $request->validate(['name' => 'required|string|max:20', 'name_ta' => 'nullable|string|max:50']);
+        $bg = BloodGroup::create($data);
+        return response()->json($bg, 201);
+    }
+
+    public function updateBloodGroup(Request $request, $id)
+    {
+        $bg = BloodGroup::findOrFail($id);
+        $data = $request->validate(['name' => 'required|string|max:20', 'name_ta' => 'nullable|string|max:50']);
+        $bg->update($data);
+        return response()->json($bg);
+    }
+
+    public function toggleBloodGroup($id)
+    {
+        $bg = BloodGroup::findOrFail($id);
+        $bg->update(['is_active' => !$bg->is_active]);
+        return response()->json(['message' => 'Blood group status toggled', 'is_active' => $bg->fresh()->is_active]);
+    }
+
+    // ─── Delete ────────────────────────────────────────────────────────
+
+    public function deleteReligion($id)
+    {
+        $religion = Religion::findOrFail($id);
+        $religion->delete();
+        Cache::forget('ref:religions');
+        return response()->json(['message' => 'Religion deleted']);
+    }
+
+    public function deleteCaste($id)
+    {
+        $caste = Caste::findOrFail($id);
+        $caste->delete();
+        Cache::forget('ref:castes:*');
+        return response()->json(['message' => 'Caste deleted']);
+    }
+
+    public function deleteState($id)
+    {
+        $state = State::findOrFail($id);
+        $state->delete();
+        Cache::forget('ref:states');
+        return response()->json(['message' => 'State deleted']);
+    }
+
+    public function deleteCity($id)
+    {
+        $city = City::findOrFail($id);
+        $city->delete();
+        Cache::forget('ref:cities:*');
+        return response()->json(['message' => 'City deleted']);
+    }
+
+    public function deleteBloodGroup($id)
+    {
+        $bg = BloodGroup::findOrFail($id);
+        $bg->delete();
+        return response()->json(['message' => 'Blood group deleted']);
+    }
+
     public function bulkUploadUsers(Request $request)
     {
+        ini_set('memory_limit', '512M');
+        set_time_limit(0);
+
         $request->validate([
             'users' => 'required|array',
             'users.*.name' => 'required|string|max:255',
-            'users.*.email' => 'required|email|unique:users,email',
+            'users.*.email' => 'required|email',
             'users.*.phone' => 'required|string|max:20',
-            'users.*.gender' => 'required|in:male,female,other',
+            'users.*.gender' => 'required|in:male,female,other,Male,Female,Other',
             'users.*.password' => 'nullable|string',
         ]);
 
         $createdUsers = [];
+        $skippedEmails = [];
         $errors = [];
 
         foreach ($request->users as $index => $userData) {
             try {
+                // If user exists, update their photo and gallery but record them in skipped
+                $existingUser = \App\Models\User::where('email', $userData['email'])->first();
+                if ($existingUser) {
+                    $profile = $existingUser->profile;
+                    if ($profile) {
+                        if (!empty($userData['profile_pic'])) {
+                            $profile->update(['photo' => $userData['profile_pic']]);
+                        }
+                        if (!empty($userData['gallery']) && is_array($userData['gallery'])) {
+                            // Avoid adding duplicate gallery entries
+                            foreach ($userData['gallery'] as $gIndex => $imageUrl) {
+                                if (!empty($imageUrl)) {
+                                    \App\Models\ProfileGallery::updateOrCreate([
+                                        'member_profile_id' => $profile->id,
+                                        'image_url' => $imageUrl,
+                                    ], [
+                                        'sort_order' => $gIndex,
+                                    ]);
+                                }
+                            }
+                        }
+                    }
+                    $skippedEmails[] = $userData;
+                    continue;
+                }
+
                 $user = $this->memberUserService->create([
                     'name' => $userData['name'],
                     'email' => $userData['email'],
                     'phone' => $userData['phone'],
-                    'gender' => $userData['gender'],
+                    'gender' => strtolower($userData['gender']),
                     'password' => (!empty($userData['password']) && strlen($userData['password']) >= 6) ? $userData['password'] : 'pass' . random_int(1000, 9999),
                     'dob' => $userData['dob'] ?? null,
                     'religion' => $userData['religion'] ?? null,
@@ -978,8 +1350,6 @@ class AdminController extends Controller
                     'city' => $userData['city'] ?? null,
                     'state' => $userData['state'] ?? null,
                     'mother_tongue' => $userData['mother_tongue'] ?? null,
-                    'rasi' => $userData['rasi'] ?? null,
-                    'nakshatram' => $userData['nakshatram'] ?? null,
                     'profile_for' => $userData['profile_for'] ?? null,
                 ]);
 
@@ -991,12 +1361,12 @@ class AdminController extends Controller
 
                 // Handle gallery images if URLs provided
                 if (!empty($userData['gallery']) && is_array($userData['gallery']) && $profile) {
-                    foreach ($userData['gallery'] as $index => $imageUrl) {
+                    foreach ($userData['gallery'] as $gIndex => $imageUrl) {
                         if (!empty($imageUrl)) {
                             \App\Models\ProfileGallery::create([
                                 'member_profile_id' => $profile->id,
                                 'image_url' => $imageUrl,
-                                'sort_order' => $index,
+                                'sort_order' => $gIndex,
                             ]);
                         }
                     }
@@ -1014,8 +1384,9 @@ class AdminController extends Controller
         }
 
         return response()->json([
-            'message' => count($createdUsers) . ' users created successfully' . (count($errors) > 0 ? ', ' . count($errors) . ' errors' : ''),
+            'message' => count($createdUsers) . ' users created successfully' . (count($errors) > 0 ? ', ' . count($errors) . ' errors' : '') . (count($skippedEmails) > 0 ? ', ' . count($skippedEmails) . ' duplicates skipped' : ''),
             'created' => $createdUsers,
+            'skipped' => $skippedEmails,
             'errors' => $errors,
         ], count($errors) > 0 && count($createdUsers) === 0 ? 422 : 201);
     }
@@ -1050,74 +1421,69 @@ class AdminController extends Controller
         ]);
     }
 
-    // ---- Castes & Religions CRUD ----
+    // ---- Roles & Permissions ----
 
-    public function getReligions()
+    public function getRoles()
     {
-        return response()->json(Religion::orderBy('name')->get(['id', 'name']));
+        $roles = \Spatie\Permission\Models\Role::with('permissions')->get();
+        return response()->json($roles);
     }
 
-    public function createReligion(Request $request)
+    public function getPermissions()
     {
-        $validated = $request->validate(['name' => 'required|string|max:100|unique:religions,name']);
-        $maxId = Religion::max('id') ?? 0;
-        $religion = Religion::create(['id' => $maxId + 1, 'name' => $validated['name']]);
-        Cache::forget('ref:religions');
-        return response()->json($religion, 201);
+        $permissions = \Spatie\Permission\Models\Permission::all();
+        return response()->json($permissions);
     }
 
-    public function updateReligion(Request $request, $id)
+    public function createRole(Request $request)
     {
-        $religion = Religion::findOrFail($id);
-        $validated = $request->validate(['name' => 'required|string|max:100|unique:religions,name,' . $id]);
-        $religion->update($validated);
-        Cache::forget('ref:religions');
-        return response()->json($religion);
-    }
+        $validated = $request->validate([
+            'name' => 'required|string|unique:roles,name',
+            'permissions' => 'array',
+            'permissions.*' => 'string|exists:permissions,name',
+        ]);
 
-    public function deleteReligion($id)
-    {
-        $religion = Religion::findOrFail($id);
-        Caste::where('religion_id', $id)->delete();
-        $religion->delete();
-        Cache::forget('ref:religions');
-        return response()->json(['message' => 'Religion and its castes deleted.']);
-    }
-
-    public function getCastes(Request $request)
-    {
-        $query = Caste::orderBy('name');
-        if ($request->filled('religion_id')) {
-            $query->where('religion_id', $request->religion_id);
+        $role = \Spatie\Permission\Models\Role::create(['name' => $validated['name']]);
+        
+        if (isset($validated['permissions'])) {
+            $role->syncPermissions($validated['permissions']);
         }
-        return response()->json($query->get(['id', 'religion_id', 'name']));
+
+        return response()->json([
+            'message' => 'Role created successfully',
+            'role' => $role->load('permissions')
+        ], 201);
     }
 
-    public function createCaste(Request $request)
+    public function updateRole(Request $request, $id)
     {
+        $role = \Spatie\Permission\Models\Role::findOrFail($id);
+        
         $validated = $request->validate([
-            'religion_id' => 'required|exists:religions,id',
-            'name' => 'required|string|max:100',
+            'name' => 'required|string|unique:roles,name,' . $id,
+            'permissions' => 'array',
+            'permissions.*' => 'string|exists:permissions,name',
         ]);
-        $maxId = Caste::max('id') ?? 0;
-        $caste = Caste::create(['id' => $maxId + 1, 'religion_id' => $validated['religion_id'], 'name' => $validated['name']]);
-        return response()->json($caste, 201);
+
+        $role->update(['name' => $validated['name']]);
+
+        if (isset($validated['permissions'])) {
+            $role->syncPermissions($validated['permissions']);
+        }
+
+        return response()->json([
+            'message' => 'Role updated successfully',
+            'role' => $role->load('permissions')
+        ]);
     }
 
-    public function updateCaste(Request $request, $id)
+    public function deleteRole($id)
     {
-        $caste = Caste::findOrFail($id);
-        $validated = $request->validate([
-            'religion_id' => 'sometimes|exists:religions,id',
-            'name' => 'sometimes|string|max:100',
-        ]);
-        $caste->update($validated);
-        return response()->json($caste);
-    }
-
-    public function deleteCaste($id)
-    {
-        Caste::findOrFail($id)->delete();
-        return response()->json(['message' => 'Caste deleted.']);
+        $role = \Spatie\Permission\Models\Role::findOrFail($id);
+        if ($role->name === 'super-admin' || $role->name === 'admin' || $role->name === 'manager' || $role->name === 'staff') {
+            return response()->json(['message' => 'Cannot delete system roles.'], 403);
+        }
+        $role->delete();
+        return response()->json(['message' => 'Role deleted successfully.']);
     }
 }

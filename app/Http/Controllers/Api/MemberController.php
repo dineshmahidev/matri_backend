@@ -46,6 +46,7 @@ class MemberController extends Controller
         }
 
         MemberVisibility::applyGenderScope($query, $user, $request->gender);
+        MemberVisibility::applyBlockScope($query, $user);
 
         if ($request->premium) {
             $query->whereHas('profile', fn($q) => $q->premium());
@@ -96,6 +97,8 @@ class MemberController extends Controller
         $baseQuery->whereNotIn('id', fn($q) => $q->select('receiver_id')->from('interests')->where('sender_id', $user->id))
                   ->whereNotIn('id', fn($q) => $q->select('saved_user_id')->from('saved_profiles')->where('user_id', $user->id))
                   ->whereNotIn('id', fn($q) => $q->select('unlocked_user_id')->from('unlocked_profiles')->where('user_id', $user->id));
+
+        MemberVisibility::applyBlockScope($baseQuery, $user);
 
         $profile = $user->profile;
         $collectedIds = collect();
@@ -171,6 +174,9 @@ class MemberController extends Controller
             $results = $q5->inRandomOrder()->take($perPage - $allResults->count())->get();
             $allResults = $allResults->merge($results);
         }
+
+        // Sort: premium members first, then by profile photo, then random
+        $allResults = $allResults->sortByDesc('premium')->values();
 
         // Manual pagination
         $total = $allResults->count();
@@ -280,17 +286,21 @@ class MemberController extends Controller
             ->whereHas('profile')
             ->with('profile.gallery', 'activeSubscription.plan');
 
-        if ($request->boolean('has_photo')) {
-            $query->whereHas('profile', fn($q) => $q->whereNotNull('photo')->where('photo', '!=', ''));
-        }
-
         if ($viewer) {
             $query->where('id', '!=', $viewer->id);
         }
 
         MemberVisibility::applyGenderScope($query, $viewer);
+        MemberVisibility::applyBlockScope($query, $viewer);
 
-        $members = $query->orderByDesc('created_at')->take(20)->get();
+        // Priority sorting: premium members first, then profiles with photos, then latest created
+        $query->join('member_profiles', 'users.id', '=', 'member_profiles.user_id')
+            ->select('users.*')
+            ->orderByRaw('CASE WHEN users.premium = 1 THEN 0 ELSE 1 END')
+            ->orderByRaw('CASE WHEN member_profiles.photo IS NOT NULL AND member_profiles.photo != "" THEN 0 ELSE 1 END')
+            ->orderByDesc('users.created_at');
+
+        $members = $query->paginate($request->per_page ?? 30);
 
         if ($viewer) {
             $memberIds = $members->pluck('id');
@@ -326,6 +336,7 @@ class MemberController extends Controller
         }
 
         MemberVisibility::applyGenderScope($query, $viewer);
+        MemberVisibility::applyBlockScope($query, $viewer);
 
         $members = $query->inRandomOrder()->take(20)->get();
 
@@ -359,6 +370,7 @@ class MemberController extends Controller
         }
 
         MemberVisibility::applyGenderScope($query, $viewer);
+        MemberVisibility::applyBlockScope($query, $viewer);
 
         $members = $query->latest()->paginate($request->per_page ?? 24);
 
@@ -377,64 +389,6 @@ class MemberController extends Controller
         }
 
         return MemberResource::collection($members);
-    }
-
-    public function matchPorutham(Request $request, string $id)
-    {
-        $user = $request->user();
-
-        if (!$user->isPremium()) {
-            return response()->json([
-                'message' => 'Porutham matching is a premium feature. Please upgrade your plan to access it.'
-            ], 403);
-        }
-
-        $oppositeUser = User::where('role', 'member')
-            ->where(function ($q) use ($id) {
-                $q->whereHas('profile', fn($q) => $q->where('display_id', $id));
-                if (is_numeric($id)) {
-                    $q->orWhere('id', (int)$id);
-                }
-                if (preg_match('/^UK00(\d{4,})$/', $id, $m)) {
-                    $userIdFromDisplay = (int)$m[1] - 10000;
-                    if ($userIdFromDisplay > 0) {
-                        $q->orWhere('id', $userIdFromDisplay);
-                    }
-                }
-            })
-            ->first();
-
-        if (!$oppositeUser) {
-            return response()->json(['message' => 'User not found.'], 404);
-        }
-
-        $astrologyService = new \App\Services\AstrologyService();
-
-        $buildDetails = function ($targetUser) use ($astrologyService) {
-            $profile = $targetUser->profile;
-            $details = $astrologyService->getBirthDetailsFromProfile(
-                $profile->rasi ?? '0',
-                $profile->nakshatram ?? '0'
-            );
-            $details['name'] = $targetUser->name;
-            $details['display_id'] = $profile->display_id ?? 'UK00' . (10000 + $targetUser->id);
-            $details['photo'] = $profile->photo;
-            $details['gender'] = $targetUser->gender;
-            return $details;
-        };
-
-        // Assign female and male roles for traditional Porutham matching
-        if ($user->gender === 'female' || $oppositeUser->gender === 'male') {
-            $femaleDetails = $buildDetails($user);
-            $maleDetails = $buildDetails($oppositeUser);
-        } else {
-            $femaleDetails = $buildDetails($oppositeUser);
-            $maleDetails = $buildDetails($user);
-        }
-
-        $matchResult = $astrologyService->match($femaleDetails, $maleDetails);
-
-        return response()->json($matchResult);
     }
 
     public function unlock(Request $request, string $id)
@@ -473,20 +427,19 @@ class MemberController extends Controller
         }
 
         $settings = \App\Models\SiteSetting::pluck('value', 'key');
-        $cost = (int) ($settings['credit_cost_unlock'] ?? 5);
-        if ($user->credits < $cost) {
+        if ($user->contact_quota < 1) {
             return response()->json([
-                'message' => 'Insufficient credits. Please top up your account to view contact details.',
+                'message' => 'Insufficient contact view credits. Please top up your account to view contact details.',
                 'is_premium' => $user->isPremium(),
             ], 400);
         }
-        $user->decrement('credits', $cost);
+        $user->decrement('contact_quota');
 
         $user->unlockedProfiles()->attach($oppositeUser->id);
 
         return response()->json([
-            'message' => "Profile unlocked successfully! $cost credits deducted.",
-            'credits' => $user->credits,
+            'message' => 'Profile unlocked successfully! 1 contact view credit used.',
+            'contact_quota' => $user->contact_quota,
             'phone' => $oppositeUser->phone,
             'email' => $oppositeUser->email,
         ]);

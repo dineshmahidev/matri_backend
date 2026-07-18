@@ -10,7 +10,7 @@ class MemberProfile extends Model
         'user_id', 'display_id', 'age', 'height', 'blood_group', 'skin_colour', 'religion', 'community',
         'mother_tongue', 'city', 'state', 'country', 'profession', 'education',
         'income', 'marital_status', 'photo', 'bio', 'premium', 'verified',
-        'online', 'last_active_at', 'rasi', 'nakshatram', 'featured',
+        'online', 'last_active_at', 'smoking_status','drinking_status','disability', 'featured',
     ];
 
     protected function casts(): array

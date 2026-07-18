@@ -114,6 +114,8 @@ class PaymentController extends Controller
                 'status' => 'paid',
                 'paid_at' => now(),
                 'notes' => $request->notes ?? $request->header('Origin') ?? request()->getHost(),
+                'razorpay_order_id' => $request->razorpay_order_id,
+                'razorpay_payment_id' => $request->razorpay_payment_id,
             ]);
 
             return response()->json(['success' => true, 'message' => 'Payment successful']);

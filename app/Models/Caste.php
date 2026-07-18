@@ -8,7 +8,7 @@ class Caste extends Model
 {
     public $incrementing = false;
 
-    protected $fillable = ['id', 'religion_id', 'name'];
+    protected $fillable = ['id', 'religion_id', 'name', 'is_active'];
 
     public function religion()
     {

@@ -23,6 +23,7 @@ class MessageController extends Controller
                     'memberId' => $other->profile?->display_id,
                     'memberName' => $other->name,
                     'memberPhoto' => $other->profile?->photo,
+                    'memberGender' => $other->gender ?? $other->profile?->gender,
                     'online' => (bool) $other->profile?->online,
                     'lastMessage' => $c->last_message,
                     'time' => $c->last_message_time,

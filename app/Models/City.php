@@ -8,7 +8,7 @@ class City extends Model
 {
     public $incrementing = false;
 
-    protected $fillable = ['id', 'state_id', 'name'];
+    protected $fillable = ['id', 'state_id', 'name', 'is_active'];
 
     public function state()
     {

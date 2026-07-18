@@ -22,9 +22,11 @@ class ProfileController extends Controller
             'name' => 'sometimes|string|max:255',
             'phone' => 'sometimes|string|max:20',
             'dob' => 'sometimes|date|nullable',
-            'tob' => 'sometimes|string|max:20|nullable',
             'bio' => 'sometimes|string|max:1000',
-            'height' => 'sometimes|string',
+            'smoking_status' => 'sometimes|nullable|in:yes,no',
+            'drinking_status' => 'sometimes|nullable|in:yes,no',
+            'disability' => 'sometimes|nullable|in:yes,no',
+            'height' => 'sometimes|nullable|string',
             'blood_group' => 'sometimes|string|nullable',
             'skin_colour' => 'sometimes|string|nullable',
             'religion' => 'sometimes|string',
@@ -36,8 +38,6 @@ class ProfileController extends Controller
             'education' => 'sometimes|string',
             'income' => 'sometimes|string',
             'marital_status' => 'sometimes|string',
-            'rasi' => 'sometimes|string|nullable',
-            'nakshatram' => 'sometimes|string|nullable',
             'family' => 'sometimes|array',
             'family.father' => 'sometimes|string|nullable',
             'family.mother' => 'sometimes|string|nullable',
@@ -64,8 +64,6 @@ class ProfileController extends Controller
                 $profile->update(['age' => \Carbon\Carbon::parse($data['dob'])->age]);
             }
         }
-        if (array_key_exists('tob', $data)) $user->update(['tob' => $data['tob']]);
-
         if (isset($data['family']) && $profile) {
             $profile->familyDetail()->updateOrCreate([], $data['family']);
         }
@@ -74,7 +72,7 @@ class ProfileController extends Controller
             $profile->partnerPreference()->updateOrCreate([], $data['partner_preferences']);
         }
 
-        $profileData = collect($data)->except(['name', 'phone', 'dob', 'tob', 'family', 'partner_preferences'])->toArray();
+        $profileData = collect($data)->except(['name', 'phone', 'dob', 'family', 'partner_preferences'])->toArray();
         if ($profile && count($profileData) > 0) {
             $profile->update($profileData);
         }
