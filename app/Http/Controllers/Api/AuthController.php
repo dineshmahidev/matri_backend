@@ -35,8 +35,6 @@ class AuthController extends Controller
             'disability' => 'nullable|in:yes,no',
         ]);
 
-        $settings = \App\Models\SiteSetting::pluck('value', 'key');
-        
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
@@ -45,9 +43,9 @@ class AuthController extends Controller
             'gender' => $data['gender'] ?? null,
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
-            'credits' => (int) ($settings['free_interest_credits'] ?? 2),
-            'contact_quota' => (int) ($settings['free_contact_quota'] ?? 30),
-            'message_quota' => (int) ($settings['free_message_quota'] ?? 50),
+            'credits' => 0,
+            'contact_quota' => 0,
+            'message_quota' => 0,
         ]);
 
         $age = $data['dob'] ? \Carbon\Carbon::parse($data['dob'])->age : null;

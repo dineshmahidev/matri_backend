@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Caste;
 use App\Models\City;
 use App\Models\Religion;
-use App\Models\SiteSetting;
 use App\Models\State;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
@@ -76,8 +75,6 @@ class MemberUserService
 
     public function create(array $data): User
     {
-        $settings = SiteSetting::pluck('value', 'key');
-
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
@@ -87,9 +84,9 @@ class MemberUserService
             'dob' => $data['dob'] ?? null,
             'role' => 'member',
             'email_verified_at' => $data['email_verified_at'] ?? now(),
-            'credits' => (int) ($settings['free_interest_credits'] ?? 2),
-            'contact_quota' => (int) ($settings['free_contact_quota'] ?? 30),
-            'message_quota' => (int) ($settings['free_message_quota'] ?? 50),
+            'credits' => 0,
+            'contact_quota' => 0,
+            'message_quota' => 0,
         ]);
 
         $profileData = array_merge([

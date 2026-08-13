@@ -92,6 +92,13 @@ class DashboardController extends Controller
             $matches = $matches->merge($results);
         }
 
+        // Sort: profiles with photos first, then premium members, then the rest
+        $matches = $matches->sortByDesc(function ($m) {
+            $hasPhoto = $m->profile?->photo ? 1 : 0;
+            $isPremium = $m->profile?->premium ? 1 : 0;
+            return $hasPhoto * 10 + $isPremium;
+        })->values();
+
         $notifications = $user->notifications()->latest()->take(5)->get();
         $payments = $user->payments()->latest()->take(3)->get();
 

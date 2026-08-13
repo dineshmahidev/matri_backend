@@ -5,13 +5,17 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\Subscription;
+use App\Services\GpayConfigService;
 use App\Services\RazorpayConfigService;
 use Illuminate\Http\Request;
 use Exception;
 
 class PaymentController extends Controller
 {
-    public function __construct(private RazorpayConfigService $razorpay) {}
+    public function __construct(
+        private RazorpayConfigService $razorpay,
+        private GpayConfigService $gpay,
+    ) {}
     public function index(Request $request)
     {
         return response()->json($request->user()->payments()->latest()->paginate(20));
@@ -23,7 +27,14 @@ class PaymentController extends Controller
             'amount' => 'required|numeric',
             'plan_id' => 'required',
             'notes' => 'nullable|string|max:500',
+            'gateway' => 'nullable|in:razorpay,gpay',
         ]);
+
+        $gateway = $request->gateway ?? 'razorpay';
+
+        if ($gateway === 'gpay' && !$this->gpay->isConfigured()) {
+            return response()->json(['error' => 'Google Pay gateway is not configured'], 503);
+        }
 
         if (!$this->razorpay->isConfigured()) {
             return response()->json(['error' => 'Payment gateway is not configured'], 503);
@@ -49,7 +60,11 @@ class PaymentController extends Controller
                 'order_id' => $razorpayOrder['id'],
                 'amount' => $orderData['amount'],
                 'currency' => $orderData['currency'],
-                'key' => $this->razorpay->keyId()
+                'key' => $this->razorpay->keyId(),
+                'gateway' => $gateway,
+                'merchant_name' => $gateway === 'gpay'
+                    ? $this->gpay->merchantName() ?: 'Google Pay'
+                    : 'Ungalkalyanam',
             ]);
         } catch (Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);

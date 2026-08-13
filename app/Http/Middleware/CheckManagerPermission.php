@@ -25,7 +25,7 @@ class CheckManagerPermission
             abort(403, 'Access denied.');
         }
 
-        // Only applies to manager role
+        // Check role-based permissions for manager and staff
         if ($user->role === 'manager') {
             $permissions = Cache::remember('manager_permissions', 60, function () {
                 $raw = \App\Models\SiteSetting::where('key', 'manager_permissions')->value('value');
@@ -33,6 +33,15 @@ class CheckManagerPermission
             });
 
             if (isset($permissions[$permission]) && !$permissions[$permission]) {
+                abort(403, "Access denied: '{$permission}' permission is required.");
+            }
+        } elseif ($user->role === 'staff') {
+            // Check if user has any permission matching this module
+            $userPerms = $user->getAllPermissions()->pluck('name');
+            $hasModulePerm = $userPerms->contains(function ($perm) use ($permission) {
+                return $perm === $permission || str_starts_with($perm, $permission . '.');
+            });
+            if (!$hasModulePerm) {
                 abort(403, "Access denied: '{$permission}' permission is required.");
             }
         }

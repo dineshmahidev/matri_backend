@@ -8,6 +8,8 @@ use App\Models\BlogPost;
 use App\Models\Faq;
 use App\Models\ContactMessage;
 use App\Models\SiteSetting;
+use App\Services\GpayConfigService;
+use App\Services\RazorpayConfigService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -31,6 +33,17 @@ class PublicController extends Controller
             SiteSetting::all()->pluck('value', 'key')
         );
         return response()->json($data);
+    }
+
+    public function paymentGateways(RazorpayConfigService $razorpay, GpayConfigService $gpay)
+    {
+        return response()->json([
+            'razorpay' => [
+                'configured' => $razorpay->isConfigured(),
+                'name' => 'Razorpay',
+            ],
+            'gpay' => $gpay->publicConfig(),
+        ]);
     }
 
     public function contact(Request $request)

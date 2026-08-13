@@ -33,6 +33,7 @@ Route::get('/faqs', [PublicController::class, 'faqs']);
 Route::get('/pages/{slug}', [PublicController::class, 'showPage']);
 Route::get('/settings', [PublicController::class, 'getSettings']);
 Route::post('/contact', [PublicController::class, 'contact']);
+Route::get('/payment-gateways', [PublicController::class, 'paymentGateways']);
 
 Route::get('/reference/religions', [ReferenceDataController::class, 'religions']);
 Route::get('/reference/castes', [ReferenceDataController::class, 'castes']);
@@ -57,6 +58,8 @@ Route::middleware('auth:sanctum')->group(function () {
     
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile', [ProfileController::class, 'update']);
+    Route::get('/profile/privacy', [ProfileController::class, 'privacy']);
+    Route::put('/profile/privacy', [ProfileController::class, 'updatePrivacy']);
     Route::put('/profile/onboarding-step', [ProfileController::class, 'updateOnboardingStep']);
     Route::post('/members/{id}/unlock', [MemberController::class, 'unlock']);
     Route::post('/profile/photo', [ProfileController::class, 'updateProfilePhoto']);
@@ -107,6 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/profile', [AdminController::class, 'profile']);
         Route::put('/profile', [AdminController::class, 'updateProfile']);
         Route::post('/profile/photo', [AdminController::class, 'uploadProfilePhoto']);
+        Route::post('/profile/change-password', [AdminController::class, 'changePasswordSelf']);
 
         // Staff notes — admin & staff only (manager.permission:staff_notes)
         Route::middleware('manager.permission:staff_notes')->group(function () {
@@ -133,6 +137,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/manager-permissions', function () {
             $raw = \App\Models\SiteSetting::where('key', 'manager_permissions')->value('value');
             return response()->json($raw ? json_decode($raw, true) : []);
+        });
+
+        // Current user's effective permissions (from their role)
+        Route::get('/my-permissions', function (\Illuminate\Http\Request $request) {
+            $user = $request->user();
+            $permissions = $user->getAllPermissions()->pluck('name');
+            $modules = [];
+            $permList = [];
+            foreach ($permissions as $perm) {
+                $permList[] = $perm;
+                $key = str_contains($perm, '.') ? explode('.', $perm)[0] : $perm;
+                $modules[$key] = true;
+            }
+            $modules['_role'] = $user->getRoleNames()->first() ?? 'staff';
+            $modules['_perms'] = $permList;
+            return response()->json($modules);
         });
 
         // ─── Users & Members — manager.permission:users ───

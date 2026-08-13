@@ -29,14 +29,24 @@ class MemberVisibility
         $opposite = self::oppositeGender($viewer);
 
         if ($opposite) {
-            return $query->where('gender', $opposite);
+            return $query->where('users.gender', $opposite);
         }
 
         if ($requestedGender) {
-            $query->where('gender', $requestedGender);
+            $query->where('users.gender', $requestedGender);
         }
 
         return $query;
+    }
+
+    /**
+     * Prioritise members who have uploaded a profile photo.
+     */
+    public static function applyPhotoPriority(Builder $query): Builder
+    {
+        return $query->orderByRaw(
+            "(SELECT CASE WHEN photo IS NOT NULL AND photo <> '' THEN 0 ELSE 1 END FROM member_profiles WHERE user_id = users.id) ASC"
+        );
     }
 
     /**
@@ -45,9 +55,9 @@ class MemberVisibility
     public static function applyBlockScope(Builder $query, ?User $viewer): Builder
     {
         if ($viewer) {
-            $query->whereNotIn('id', function($q) use ($viewer) {
+            $query->whereNotIn('users.id', function($q) use ($viewer) {
                 $q->select('blocked_id')->from('user_blocks')->where('blocker_id', $viewer->id);
-            })->whereNotIn('id', function($q) use ($viewer) {
+            })->whereNotIn('users.id', function($q) use ($viewer) {
                 $q->select('blocker_id')->from('user_blocks')->where('blocked_id', $viewer->id);
             });
         }

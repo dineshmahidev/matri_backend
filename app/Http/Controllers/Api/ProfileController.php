@@ -13,6 +13,43 @@ class ProfileController extends Controller
         return new MemberResource($user);
     }
 
+    public function privacy(Request $request)
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'photo_visibility' => $user->photo_visibility ?? 'all',
+            'profile_visibility' => $user->profile_visibility ?? 'all',
+            'show_phone' => (bool) ($user->show_phone ?? false),
+            'notify_interest' => (bool) ($user->notify_interest ?? true),
+            'notify_message' => (bool) ($user->notify_message ?? true),
+        ]);
+    }
+
+    public function updatePrivacy(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'photo_visibility' => 'sometimes|in:all,members,none',
+            'profile_visibility' => 'sometimes|in:all,members,none',
+            'show_phone' => 'sometimes|boolean',
+            'notify_interest' => 'sometimes|boolean',
+            'notify_message' => 'sometimes|boolean',
+        ]);
+
+        $user->update($data);
+
+        return response()->json([
+            'message' => 'Privacy settings saved',
+            'photo_visibility' => $user->photo_visibility,
+            'profile_visibility' => $user->profile_visibility,
+            'show_phone' => (bool) $user->show_phone,
+            'notify_interest' => (bool) $user->notify_interest,
+            'notify_message' => (bool) $user->notify_message,
+        ]);
+    }
+
     public function update(Request $request)
     {
         $user = $request->user();

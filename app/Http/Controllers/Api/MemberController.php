@@ -52,6 +52,8 @@ class MemberController extends Controller
             $query->whereHas('profile', fn($q) => $q->premium());
         }
 
+        MemberVisibility::applyPhotoPriority($query);
+
         $members = $query->latest()->paginate($request->per_page ?? 24);
 
         if ($user) {
@@ -137,6 +139,7 @@ class MemberController extends Controller
             $this->applyOwnPreferences($q1, $prefReligion, $prefCommunity, $ageMin, $ageMax);
             $this->applyMutualMatching($q1, $profile);
             $results = $q1->inRandomOrder()->take($perPage)->get();
+            $results->each->setAttribute('recommendation_level', 1);
             $collectedIds = $results->pluck('id');
             $allResults = $results;
 
@@ -145,6 +148,7 @@ class MemberController extends Controller
                 $q2 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
                 $this->applyOwnPreferences($q2, $prefReligion, $prefCommunity, $ageMin, $ageMax);
                 $results = $q2->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $results->each->setAttribute('recommendation_level', 2);
                 $collectedIds = $collectedIds->merge($results->pluck('id'));
                 $allResults = $allResults->merge($results);
             }
@@ -154,6 +158,7 @@ class MemberController extends Controller
                 $q3 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
                 $this->applyReligionAge($q3, $prefReligion, $ageMin, $ageMax);
                 $results = $q3->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $results->each->setAttribute('recommendation_level', 3);
                 $collectedIds = $collectedIds->merge($results->pluck('id'));
                 $allResults = $allResults->merge($results);
             }
@@ -163,6 +168,7 @@ class MemberController extends Controller
                 $q4 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
                 $q4->whereHas('profile', fn($q) => $q->whereBetween('age', [$ageMin, $ageMax]));
                 $results = $q4->inRandomOrder()->take($perPage - $allResults->count())->get();
+                $results->each->setAttribute('recommendation_level', 4);
                 $collectedIds = $collectedIds->merge($results->pluck('id'));
                 $allResults = $allResults->merge($results);
             }
@@ -172,11 +178,21 @@ class MemberController extends Controller
         if ($allResults->count() < $minResults) {
             $q5 = (clone $baseQuery)->whereNotIn('id', $collectedIds);
             $results = $q5->inRandomOrder()->take($perPage - $allResults->count())->get();
+            $results->each->setAttribute('recommendation_level', 5);
             $allResults = $allResults->merge($results);
         }
 
-        // Sort: premium members first, then by profile photo, then random
-        $allResults = $allResults->sortByDesc('premium')->values();
+        // Attach "Why recommended" reason per member
+        $allResults->each(function ($m) use ($profile) {
+            $m->recommendation_reason = $this->recommendationReason($m, $profile, (int) $m->recommendation_level);
+        });
+
+        // Sort: profiles with photos first, then premium members, then the rest
+        $allResults = $allResults->sortByDesc(function ($m) {
+            $hasPhoto = $m->profile?->photo ? 1 : 0;
+            $isPremium = $m->profile?->premium ? 1 : 0;
+            return $hasPhoto * 10 + $isPremium;
+        })->values();
 
         // Manual pagination
         $total = $allResults->count();
@@ -214,6 +230,76 @@ class MemberController extends Controller
         if ($ageMin !== null) {
             $query->whereHas('profile', fn($q) => $q->whereBetween('age', [$ageMin, $ageMax]));
         }
+    }
+
+    private function recommendationReason($member, $profile, int $level): string
+    {
+        $p = $member->profile;
+        if (!$p || !$profile) {
+            return $this->levelLabel($level);
+        }
+
+        $preference = $profile->partnerPreference;
+        $prefReligion = null;
+        $prefCommunity = null;
+        $prefAge = null;
+
+        if ($preference) {
+            if ($preference->religion && strtolower($preference->religion) !== 'open to all') {
+                $prefReligion = $preference->religion;
+            }
+            if ($preference->community && strtolower($preference->community) !== 'open to all') {
+                $prefCommunity = $preference->community;
+            }
+            if ($preference->age_range) {
+                $prefAge = $preference->age_range;
+            }
+        } else {
+            if ($profile->religion) $prefReligion = $profile->religion;
+            if ($profile->community) $prefCommunity = $profile->community;
+        }
+
+        $reasons = [];
+
+        if ($prefReligion && $p->religion === $prefReligion) {
+            $reasons[] = 'Matches your religion (' . $prefReligion . ')';
+        }
+        if ($prefCommunity && $p->community === $prefCommunity) {
+            $reasons[] = 'Matches your community (' . $prefCommunity . ')';
+        }
+        if ($prefAge && $p->age !== null) {
+            $parts = explode('-', $prefAge);
+            if (count($parts) === 2) {
+                $min = (int) trim($parts[0]);
+                $max = (int) trim($parts[1]);
+                if ($p->age >= $min && $p->age <= $max) {
+                    $reasons[] = 'Age ' . $p->age . ' within your preference (' . $min . '-' . $max . ')';
+                }
+            }
+        }
+        if ($p->mother_tongue && $p->mother_tongue === $profile->mother_tongue) {
+            $reasons[] = 'Same mother tongue (' . $p->mother_tongue . ')';
+        }
+        if ($p->city && $p->city === $profile->city) {
+            $reasons[] = 'Located in ' . $p->city;
+        }
+
+        if (count($reasons) > 0) {
+            return implode(', ', array_slice($reasons, 0, 2)) . '.';
+        }
+
+        return $this->levelLabel($level);
+    }
+
+    private function levelLabel(int $level): string
+    {
+        return match ($level) {
+            1 => 'Mutual match based on your preferences.',
+            2 => 'Matches your partner preferences.',
+            3 => 'Shares your religion and preferred age.',
+            4 => 'Within your preferred age range.',
+            default => 'Suggested based on your profile.',
+        };
     }
 
     private function applyReligionAge($query, $religion, $ageMin, $ageMax): void
@@ -287,7 +373,7 @@ class MemberController extends Controller
             ->with('profile.gallery', 'activeSubscription.plan');
 
         if ($viewer) {
-            $query->where('id', '!=', $viewer->id);
+            $query->where('users.id', '!=', $viewer->id);
         }
 
         MemberVisibility::applyGenderScope($query, $viewer);
@@ -296,7 +382,7 @@ class MemberController extends Controller
         // Priority sorting: premium members first, then profiles with photos, then latest created
         $query->join('member_profiles', 'users.id', '=', 'member_profiles.user_id')
             ->select('users.*')
-            ->orderByRaw('CASE WHEN users.premium = 1 THEN 0 ELSE 1 END')
+            ->orderByRaw('CASE WHEN member_profiles.premium = 1 THEN 0 ELSE 1 END')
             ->orderByRaw('CASE WHEN member_profiles.photo IS NOT NULL AND member_profiles.photo != "" THEN 0 ELSE 1 END')
             ->orderByDesc('users.created_at');
 
@@ -338,6 +424,8 @@ class MemberController extends Controller
         MemberVisibility::applyGenderScope($query, $viewer);
         MemberVisibility::applyBlockScope($query, $viewer);
 
+        MemberVisibility::applyPhotoPriority($query);
+
         $members = $query->inRandomOrder()->take(20)->get();
 
         if ($viewer) {
@@ -371,6 +459,8 @@ class MemberController extends Controller
 
         MemberVisibility::applyGenderScope($query, $viewer);
         MemberVisibility::applyBlockScope($query, $viewer);
+
+        MemberVisibility::applyPhotoPriority($query);
 
         $members = $query->latest()->paginate($request->per_page ?? 24);
 

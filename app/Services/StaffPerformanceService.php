@@ -24,7 +24,7 @@ class StaffPerformanceService
             'staffId' => $staff->id,
             'name' => $staff->name,
             'email' => $staff->email,
-            'role' => 'Counsellor',
+            'role' => $staff->getRoleNames()->first() ?? 'staff',
             'leads' => $staff->assigned_leads_count ?? Lead::where('assigned_to', $staff->id)->count(),
             'conversions' => $conversions,
             'status' => $todayAttendance && $todayAttendance->login_at && !$todayAttendance->logout_at

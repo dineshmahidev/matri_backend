@@ -45,6 +45,7 @@ class ApiTest extends TestCase
             'gender' => 'male',
             'dob' => '1995-05-15',
             'password' => 'password123',
+            'password_confirmation' => 'password123',
         ]);
 
         $regResponse->assertStatus(201)

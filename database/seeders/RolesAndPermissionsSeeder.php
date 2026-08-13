@@ -2,62 +2,107 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class RolesAndPermissionsSeeder extends Seeder
 {
     /**
-     * Run the database seeds.
+     * Aligns with public_html admin role flow: dot-notation permissions
+     * grouped by module (users.*, packages.*, etc.) for admin/manager/staff.
      */
     public function run(): void
     {
-        // create permissions
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
+
         $permissions = [
-            'view dashboard',
-            'view users',
-            'edit users',
-            'delete users',
-            'view packages',
-            'edit packages',
-            'delete packages',
-            'view payments',
-            'edit payments',
-            'delete payments',
-            'view reports',
-            'manage settings',
+            // Dashboard
+            'dashboard.view',
+
+            // Users & members
+            'users.view', 'users.create', 'users.edit', 'users.delete',
+            'users.bulk-add.view', 'users.bulk-add.create',
+            'users.credits.edit',
+
+            // Packages
+            'packages.view', 'packages.create', 'packages.edit', 'packages.delete',
+
+            // CMS
+            'cms.view', 'cms.edit',
+
+            // Leads
+            'leads.view', 'leads.create', 'leads.edit', 'leads.delete',
+
+            // Reference data
+            'reference_data.view', 'reference_data.edit',
+
+            // Payments
+            'payments.view', 'payments.approve', 'payments.reject',
+
+            // Reports
+            'reports.view',
+
+            // Staff
+            'staff.view', 'staff.create', 'staff.edit', 'staff.delete',
+            'staff_notes.view', 'staff_notes.edit',
+
+            // Support
+            'support_tickets.view', 'support_tickets.edit',
+
+            // Roles
+            'roles.view', 'roles.create', 'roles.edit', 'roles.delete',
+
+            // Settings / maintenance
+            'settings.view', 'settings.edit',
+            'maintenance.view', 'maintenance.edit',
         ];
 
         foreach ($permissions as $permission) {
-            Permission::firstOrCreate(['name' => $permission]);
+            Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
         }
 
-        // create roles and assign created permissions
+        // Remove legacy space-separated duplicates (e.g. "view packages")
+        // that collide with the new dot-notation names in the UI.
+        Permission::where('guard_name', 'web')
+            ->whereNotIn('name', $permissions)
+            ->each(function (Permission $permission) {
+                $permission->roles()->detach();
+                $permission->delete();
+            });
 
-        // this can be done as separate statements
-        $roleSuperAdmin = Role::firstOrCreate(['name' => 'super-admin']);
-        $roleSuperAdmin->givePermissionTo(Permission::all());
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
-        $roleAdmin = Role::firstOrCreate(['name' => 'admin']);
-        $roleAdmin->givePermissionTo(Permission::all());
+        $all = Permission::where('guard_name', 'web')->pluck('name')->toArray();
 
-        $roleManager = Role::firstOrCreate(['name' => 'manager']);
-        $roleManager->givePermissionTo([
-            'view dashboard',
-            'view users',
-            'edit users',
-            'view packages',
-            'edit packages',
-            'view payments',
-            'view reports'
+        $superAdmin = Role::firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $superAdmin->syncPermissions($all);
+
+        $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
+        $admin->syncPermissions($all);
+
+        $manager = Role::firstOrCreate(['name' => 'manager', 'guard_name' => 'web']);
+        $manager->syncPermissions([
+            'dashboard.view',
+            'users.view', 'users.create', 'users.edit',
+            'users.bulk-add.view', 'users.bulk-add.create',
+            'packages.view', 'packages.edit',
+            'cms.view', 'cms.edit',
+            'leads.view', 'leads.create', 'leads.edit',
+            'reference_data.view',
+            'payments.view',
+            'reports.view',
+            'support_tickets.view', 'support_tickets.edit',
+            'settings.view',
         ]);
 
-        $roleStaff = Role::firstOrCreate(['name' => 'staff']);
-        $roleStaff->givePermissionTo([
-            'view dashboard',
-            'view users',
+        $staff = Role::firstOrCreate(['name' => 'staff', 'guard_name' => 'web']);
+        $staff->syncPermissions([
+            'dashboard.view',
+            'users.view', 'users.create',
+            'leads.view', 'leads.create', 'leads.edit',
+            'staff_notes.view', 'staff_notes.edit',
         ]);
     }
 }

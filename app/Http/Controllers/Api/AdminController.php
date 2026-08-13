@@ -443,6 +443,17 @@ class AdminController extends Controller
         return response()->json(['message' => 'Password changed successfully']);
     }
 
+    public function changePasswordSelf(Request $request)
+    {
+        $data = $request->validate([
+            'password' => 'required|string|min:8',
+        ]);
+
+        $request->user()->update(['password' => Hash::make($data['password'])]);
+
+        return response()->json(['message' => 'Password changed successfully']);
+    }
+
     public function createUser(Request $request)
     {
         $data = $request->validate([
@@ -1298,10 +1309,8 @@ class AdminController extends Controller
         set_time_limit(0);
 
         $request->validate([
-            'users' => 'required|array',
-            'users.*.name' => 'required|string|max:255',
+            'users' => 'required|array|min:1',
             'users.*.email' => 'required|email',
-            'users.*.phone' => 'required|string|max:20',
             'users.*.gender' => 'required|in:male,female,other,Male,Female,Other',
             'users.*.password' => 'nullable|string',
         ]);
@@ -1310,9 +1319,15 @@ class AdminController extends Controller
         $skippedEmails = [];
         $errors = [];
 
-        foreach ($request->users as $index => $userData) {
+        foreach ($request->users as $index => $raw) {
+            $userData = $this->normalizeBulkUserRow(is_array($raw) ? $raw : []);
+
             try {
-                // If user exists, update their photo and gallery but record them in skipped
+                if (empty($userData['name']) || empty($userData['email']) || empty($userData['phone']) || empty($userData['gender'])) {
+                    $errors[] = 'Row ' . ($index + 1) . ': name, email, phone, and gender are required.';
+                    continue;
+                }
+
                 $existingUser = \App\Models\User::where('email', $userData['email'])->first();
                 if ($existingUser) {
                     $profile = $existingUser->profile;
@@ -1321,7 +1336,6 @@ class AdminController extends Controller
                             $profile->update(['photo' => $userData['profile_pic']]);
                         }
                         if (!empty($userData['gallery']) && is_array($userData['gallery'])) {
-                            // Avoid adding duplicate gallery entries
                             foreach ($userData['gallery'] as $gIndex => $imageUrl) {
                                 if (!empty($imageUrl)) {
                                     \App\Models\ProfileGallery::updateOrCreate([
@@ -1343,7 +1357,9 @@ class AdminController extends Controller
                     'email' => $userData['email'],
                     'phone' => $userData['phone'],
                     'gender' => strtolower($userData['gender']),
-                    'password' => (!empty($userData['password']) && strlen($userData['password']) >= 6) ? $userData['password'] : 'pass' . random_int(1000, 9999),
+                    'password' => (!empty($userData['password']) && strlen($userData['password']) >= 6)
+                        ? $userData['password']
+                        : 'pass' . random_int(1000, 9999),
                     'dob' => $userData['dob'] ?? null,
                     'religion' => $userData['religion'] ?? null,
                     'community' => $userData['community'] ?? null,
@@ -1353,13 +1369,11 @@ class AdminController extends Controller
                     'profile_for' => $userData['profile_for'] ?? null,
                 ]);
 
-                // Handle profile photo if URL provided
                 $profile = $user->profile;
                 if (!empty($userData['profile_pic']) && $profile) {
                     $profile->update(['photo' => $userData['profile_pic']]);
                 }
 
-                // Handle gallery images if URLs provided
                 if (!empty($userData['gallery']) && is_array($userData['gallery']) && $profile) {
                     foreach ($userData['gallery'] as $gIndex => $imageUrl) {
                         if (!empty($imageUrl)) {
@@ -1379,16 +1393,71 @@ class AdminController extends Controller
                     'display_id' => $profile?->display_id,
                 ];
             } catch (\Exception $e) {
-                $errors[] = "Row {$index} ({$userData['email']}): " . $e->getMessage();
+                $errors[] = 'Row ' . ($index + 1) . ' (' . ($userData['email'] ?? 'unknown') . '): ' . $e->getMessage();
             }
         }
 
         return response()->json([
-            'message' => count($createdUsers) . ' users created successfully' . (count($errors) > 0 ? ', ' . count($errors) . ' errors' : '') . (count($skippedEmails) > 0 ? ', ' . count($skippedEmails) . ' duplicates skipped' : ''),
+            'message' => count($createdUsers) . ' users created successfully'
+                . (count($errors) > 0 ? ', ' . count($errors) . ' errors' : '')
+                . (count($skippedEmails) > 0 ? ', ' . count($skippedEmails) . ' duplicates skipped' : ''),
             'created' => $createdUsers,
             'skipped' => $skippedEmails,
             'errors' => $errors,
         ], count($errors) > 0 && count($createdUsers) === 0 ? 422 : 201);
+    }
+
+    /**
+     * Normalize bulk rows to matri fields; also accepts public_html CSV aliases
+     * (firstname/lastname, mobile, birth_date, caste).
+     */
+    private function normalizeBulkUserRow(array $row): array
+    {
+        $get = function (array $keys, $default = null) use ($row) {
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $row) && $row[$key] !== '' && $row[$key] !== null) {
+                    return is_string($row[$key]) ? trim($row[$key]) : $row[$key];
+                }
+            }
+            return $default;
+        };
+
+        $name = $get(['name', 'full_name', 'fullname']);
+        if (!$name) {
+            $first = $get(['firstname', 'first_name'], '');
+            $last = $get(['lastname', 'last_name'], '');
+            $name = trim($first . ' ' . $last) ?: null;
+        }
+
+        $gallery = $get(['gallery'], []);
+        if (is_string($gallery)) {
+            $decoded = json_decode($gallery, true);
+            $gallery = is_array($decoded)
+                ? $decoded
+                : array_values(array_filter(array_map('trim', preg_split('/[|;]/', $gallery) ?: [])));
+        }
+        if (!is_array($gallery)) {
+            $gallery = [];
+        }
+
+        return [
+            'name' => $name,
+            'email' => $get(['email']),
+            'phone' => $get(['phone', 'mobile']),
+            'gender' => $get(['gender']),
+            'password' => $get(['password']),
+            'dob' => $get(['dob', 'birth_date', 'date_of_birth']),
+            'religion' => $get(['religion']),
+            'community' => $get(['community', 'caste']),
+            'city' => $get(['city']),
+            'state' => $get(['state']),
+            'mother_tongue' => $get(['mother_tongue']),
+            'profile_for' => $get(['profile_for']),
+            'profile_pic' => $get(['profile_pic', 'photo', 'image']),
+            'gallery' => $gallery,
+            'profile_pic_filename' => $get(['profile_pic_filename', 'photo_filename']),
+            'gallery_filenames' => $get(['gallery_filenames']),
+        ];
     }
 
     public function addUserCredits(Request $request, $id)
@@ -1421,69 +1490,129 @@ class AdminController extends Controller
         ]);
     }
 
-    // ---- Roles & Permissions ----
+    // ---- Roles & Permissions (Spatie, same flow as public_html RoleController) ----
 
     public function getRoles()
     {
-        $roles = \Spatie\Permission\Models\Role::with('permissions')->get();
+        $roles = \Spatie\Permission\Models\Role::with('permissions')
+            ->where('guard_name', 'web')
+            ->orderBy('name')
+            ->get();
+
         return response()->json($roles);
     }
 
     public function getPermissions()
     {
-        $permissions = \Spatie\Permission\Models\Permission::all();
+        $permissions = \Spatie\Permission\Models\Permission::where('guard_name', 'web')
+            ->orderBy('name')
+            ->get();
+
         return response()->json($permissions);
     }
 
     public function createRole(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|unique:roles,name',
-            'permissions' => 'array',
-            'permissions.*' => 'string|exists:permissions,name',
+            'name' => 'required|string|max:100|unique:roles,name,NULL,id,guard_name,web',
+            'permissions' => 'nullable|array',
+            'permissions.*' => 'string',
         ]);
 
-        $role = \Spatie\Permission\Models\Role::create(['name' => $validated['name']]);
-        
-        if (isset($validated['permissions'])) {
-            $role->syncPermissions($validated['permissions']);
-        }
+        $name = strtolower(trim($validated['name']));
+        $name = str_replace(' ', '-', $name);
+
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        $role = \Spatie\Permission\Models\Role::create([
+            'name' => $name,
+            'guard_name' => 'web',
+        ]);
+
+        $permissionNames = $this->resolvePermissionNames($validated['permissions'] ?? []);
+        $role->syncPermissions($permissionNames);
 
         return response()->json([
             'message' => 'Role created successfully',
-            'role' => $role->load('permissions')
+            'role' => $role->load('permissions'),
         ], 201);
     }
 
     public function updateRole(Request $request, $id)
     {
-        $role = \Spatie\Permission\Models\Role::findOrFail($id);
-        
+        $role = \Spatie\Permission\Models\Role::where('guard_name', 'web')->findOrFail($id);
+
+        $systemRoles = ['super-admin', 'admin', 'manager', 'staff'];
+        $isSystem = in_array($role->name, $systemRoles, true);
+
         $validated = $request->validate([
-            'name' => 'required|string|unique:roles,name,' . $id,
-            'permissions' => 'array',
-            'permissions.*' => 'string|exists:permissions,name',
+            'name' => 'required|string|max:100|unique:roles,name,' . $role->id . ',id,guard_name,web',
+            'permissions' => 'nullable|array',
+            'permissions.*' => 'string',
         ]);
 
-        $role->update(['name' => $validated['name']]);
+        if (!$isSystem) {
+            $name = strtolower(trim($validated['name']));
+            $name = str_replace(' ', '-', $name);
+            $role->name = $name;
+            $role->save();
+        }
 
-        if (isset($validated['permissions'])) {
-            $role->syncPermissions($validated['permissions']);
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        $permissionNames = $this->resolvePermissionNames($validated['permissions'] ?? []);
+        $role->syncPermissions($permissionNames);
+
+        // Sync manager_permissions site setting when updating the manager role
+        if ($role->name === 'manager') {
+            $managerPerms = [];
+            foreach ($permissionNames as $perm) {
+                // Extract module name (before dot) or use the permission name itself
+                $key = str_contains($perm, '.') ? explode('.', $perm)[0] : $perm;
+                $managerPerms[$key] = true;
+            }
+            \App\Models\SiteSetting::updateOrCreate(
+                ['key' => 'manager_permissions'],
+                ['value' => json_encode($managerPerms)]
+            );
+            \Illuminate\Support\Facades\Cache::forget('site_settings');
+            \Illuminate\Support\Facades\Cache::forget('manager_permissions');
         }
 
         return response()->json([
             'message' => 'Role updated successfully',
-            'role' => $role->load('permissions')
+            'role' => $role->fresh()->load('permissions'),
         ]);
     }
 
     public function deleteRole($id)
     {
-        $role = \Spatie\Permission\Models\Role::findOrFail($id);
-        if ($role->name === 'super-admin' || $role->name === 'admin' || $role->name === 'manager' || $role->name === 'staff') {
+        $role = \Spatie\Permission\Models\Role::where('guard_name', 'web')->findOrFail($id);
+
+        if (in_array($role->name, ['super-admin', 'admin', 'manager', 'staff'], true)) {
             return response()->json(['message' => 'Cannot delete system roles.'], 403);
         }
+
         $role->delete();
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
         return response()->json(['message' => 'Role deleted successfully.']);
+    }
+
+    /**
+     * Keep only permissions that exist for the web guard (same idea as public_html syncPermissions).
+     */
+    private function resolvePermissionNames(array $permissions): array
+    {
+        $names = array_values(array_unique(array_filter(array_map('strval', $permissions))));
+
+        if ($names === []) {
+            return [];
+        }
+
+        return \Spatie\Permission\Models\Permission::where('guard_name', 'web')
+            ->whereIn('name', $names)
+            ->pluck('name')
+            ->toArray();
     }
 }
